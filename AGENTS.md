@@ -133,10 +133,12 @@ src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+
 ewe-player status/position/metadata` inside it never touches the owner's session.
 - **Idle**: `inhibit_idle(true)` while a video plays (D-Bus `org.freedesktop.ScreenSaver.Inhibit`,
   which hypridle serves because `ignore_dbus_inhibit = false`); released on pause and on exit.
-- **Codecs**: WebKitGTK decodes through GStreamer; without `gst-libav` the box plays H.264 (openh264
-  / va), HEVC (libde265 / va), VP8/9, AV1, AAC, MP3, Opus, Vorbis, FLAC, WAV; MPEG-4 Part 2, WMV/WMA,
-  ALAC, AC-3, DTS need gst-libav (ewe 0.44 ships it). The error page names the codecs (ffprobe) and
-  says so.
+- **Codecs** (matrix 2026-11-19, headless, `tools` in the session scratchpad; MPRIS position
+  advancing 3 s per 3 s): without `gst-libav` the box plays H.264 (`vah264dec`), HEVC
+  (`vah265dec`), VP9, AAC (faad), MP3, Opus, Vorbis, FLAC; MPEG-4 Part 2 (AVI) plays sound only
+  (the player says so); WMV/WMA and ALAC fail with the plain-words page. With the extracted
+  gst-libav all 26 rows play (`avdec_aac`, `avdec_wmv2`, `avdec_alac`…; VA decoders still win for
+  H.264/HEVC). ewe 0.44 ships gst-libav.
 
 ## Verify (do this before reporting)
 
@@ -159,7 +161,10 @@ ewe-player status/position/metadata` inside it never touches the owner's session
 Measured 2026-11-19 (release build, placeholder page, headless cage): ewe Files = app 238 MB RSS /
 112 MB PSS + WebKitWebProcess 230 / 81 + WebKitNetworkProcess 52 / 13 + bwrap/glycin ≈ 20 / 7 —
 **about 540 MB RSS, 213 MB PSS in total** (RSS counts the shared GTK/WebKit libraries once per
-process; PSS is the honest number). ewe Player: 516 MB RSS / 189 MB PSS.
+process; PSS is the honest number). ewe Player placeholder: 516 MB RSS / 189 MB PSS; the real
+player (2026-11-19): 1080p H.264 playing with controls ≈ 600 MB RSS / 284 MB PSS (app 107 +
+WebProcess 150 + network 21 + glycin 7), music library idle ≈ 545 MB RSS / 234 MB PSS, music
+playing ≈ 266 MB PSS.
 
 ## Gotchas already hit
 

@@ -593,6 +593,103 @@ const ICONS = {
     },
     { path: 'M16 9a5 5 0 0 1 0 6' },
   ],
+  // added for ewe Viewer
+  'flip-horizontal': [
+    { path: 'M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3' },
+    { path: 'M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3' },
+    { path: 'M12 20v2' },
+    { path: 'M12 14v2' },
+    { path: 'M12 8v2' },
+    { path: 'M12 2v2' },
+  ],
+  'flip-vertical': [
+    { path: 'M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3' },
+    { path: 'M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3' },
+    { path: 'M4 12H2' },
+    { path: 'M10 12H8' },
+    { path: 'M16 12h-2' },
+    { path: 'M22 12h-2' },
+  ],
+  'columns-2': [{ rect: { x: 3, y: 3, width: 18, height: 18, rx: 2 } }, { path: 'M12 3v18' }],
+  square: [{ rect: { x: 3, y: 3, width: 18, height: 18, rx: 2 } }],
+  'gallery-vertical': [
+    { path: 'M3 2h18' },
+    { rect: { x: 3, y: 6, width: 18, height: 12, rx: 2 } },
+    { path: 'M3 22h18' },
+  ],
+  'list-tree': [
+    { path: 'M8 5h13' },
+    { path: 'M13 12h8' },
+    { path: 'M13 19h8' },
+    { path: 'M3 10a2 2 0 0 0 2 2h3' },
+    { path: 'M3 5v12a2 2 0 0 0 2 2h3' },
+  ],
+  wallpaper: [
+    { path: 'M12 17v4' },
+    { path: 'M8 21h8' },
+    { path: 'm9 17 6.1-6.1a2 2 0 0 1 2.81.01L22 15' },
+    { circle: { cx: 8, cy: 9, r: 2 } },
+    { rect: { x: 2, y: 3, width: 20, height: 14, rx: 2 } },
+  ],
+  'file-spreadsheet': [
+    {
+      path: 'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z',
+    },
+    { path: 'M14 2v5a1 1 0 0 0 1 1h5' },
+    { path: 'M8 13h2' },
+    { path: 'M14 13h2' },
+    { path: 'M8 17h2' },
+    { path: 'M14 17h2' },
+  ],
+  'file-question': [
+    {
+      path: 'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z',
+    },
+    { path: 'M12 17h.01' },
+    { path: 'M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3' },
+  ],
+  book: [
+    {
+      path: 'M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20',
+    },
+  ],
+  scan: [
+    { path: 'M3 7V5a2 2 0 0 1 2-2h2' },
+    { path: 'M17 3h2a2 2 0 0 1 2 2v2' },
+    { path: 'M21 17v2a2 2 0 0 1-2 2h-2' },
+    { path: 'M7 21H5a2 2 0 0 1-2-2v-2' },
+  ],
+  'letter-text': [
+    { path: 'M15 5h6' },
+    { path: 'M15 12h6' },
+    { path: 'M3 19h18' },
+    { path: 'm3 12 3.553-7.724a.5.5 0 0 1 .894 0L11 12' },
+    { path: 'M3.92 10h6.16' },
+  ],
+  images: [
+    { path: 'm22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16' },
+    { path: 'M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2' },
+    { circle: { cx: 13, cy: 7, r: 1 } },
+    { rect: { x: 8, y: 2, width: 14, height: 14, rx: 2 } },
+  ],
+  'wrap-text': [
+    { path: 'm16 16-3 3 3 3' },
+    { path: 'M3 12h14.5a1 1 0 0 1 0 7H13' },
+    { path: 'M3 19h6' },
+    { path: 'M3 5h18' },
+  ],
+  'gallery-horizontal': [
+    { path: 'M2 3v18' },
+    { rect: { x: 6, y: 3, width: 12, height: 18, rx: 2 } },
+    { path: 'M22 3v18' },
+  ],
+  fullscreen: [
+    { path: 'M3 7V5a2 2 0 0 1 2-2h2' },
+    { path: 'M17 3h2a2 2 0 0 1 2 2v2' },
+    { path: 'M21 17v2a2 2 0 0 1-2 2h-2' },
+    { path: 'M7 21H5a2 2 0 0 1-2-2v-2' },
+    { rect: { x: 7, y: 8, width: 10, height: 8, rx: 1 } },
+  ],
 } satisfies Record<string, Shape[]>
 
 export type IconName = keyof typeof ICONS

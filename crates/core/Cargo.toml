@@ -33,6 +33,7 @@ png = "0.17"
 lofty = "0.22"
 roxmltree = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+kamadak-exif = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

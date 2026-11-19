@@ -1,27 +1,1324 @@
-/* app-specific rules; tokens only (see @ewe/ui styles/tokens.css for the names) */
+/* ewe Viewer — app rules; tokens only (names in @ewe/ui styles/tokens.css).
+   pdf.js' own stylesheet (pdf_viewer.css) is third-party; its colours are overridden below. */
 
-.demo-row {
+/* ── window shell ─────────────────────────────────────────────────────────── */
+
+.app-header {
+  gap: var(--space-xs);
+  padding-right: var(--space-xs);
+}
+
+.app-name-text {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .app-name-text {
+    display: inline;
+  }
+}
+
+.app-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar--header {
+  min-height: 0;
+  padding: 0;
+}
+
+.doc {
+  position: absolute;
+  inset: 0;
+}
+
+.doc--hidden {
+  display: none;
+}
+
+.app--dropping .app-body {
+  outline: var(--border-width-2) dashed var(--accent);
+  outline-offset: calc(-1 * var(--space-xs));
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-s);
+  background: color-mix(in srgb, var(--surface-base) 70%, transparent);
+  color: var(--accent-text);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  pointer-events: none;
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
+}
+
+/* ── shared view scaffolding ──────────────────────────────────────────────── */
+
+.view-toolbar {
+  flex: none;
+  min-height: var(--bar-height);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+.view-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 40%;
+  padding-left: var(--space-xs);
+}
+
+.view-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
+}
+
+.view-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.view-center {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  overflow: auto;
+}
+
+.view-loading {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: min(var(--panel-sm), 60%);
+  translate: -50% 0;
+}
+
+.info-rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+  user-select: text;
+}
+
+.info-rows dt {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.info-rows dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-s);
+}
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  height: var(--control-lg);
+  padding: 0 var(--space-s);
+  border-radius: var(--primary);
+  text-align: left;
+}
+
+.app-list-row:hover {
+  background: var(--surface-hover);
+}
+
+.app-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-list-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.findbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-s);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+  animation: ewe-slide-down var(--dur-fast) var(--ease-out);
+}
+
+.findbar .field {
+  width: min(var(--panel-sm), 50%);
+}
+
+.findbar-count {
+  min-width: calc(5 * var(--space-md));
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.findbar-count--none {
+  color: var(--danger);
+}
+
+/* ── PDF ──────────────────────────────────────────────────────────────────── */
+
+.pdf {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pdf-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pdf-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--panel-sm);
+  min-height: 0;
+  border-right: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+.pdf-side-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  justify-content: center;
+  padding: var(--space-xs);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+}
+
+.pdf-side-title {
+  padding: 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-s);
+  font-weight: var(--font-weight-medium);
+}
+
+.pdf-side-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-xs);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.pdf-thumbs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-s);
+  min-height: 0;
+  padding: var(--space-s);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.pdf-thumb {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xxs);
+  padding: var(--space-xs);
+  border: var(--border-width-2) solid transparent;
+  border-radius: var(--primary);
+}
+
+.pdf-thumb:hover {
+  background: var(--surface-hover);
+}
+
+.pdf-thumb.current {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.pdf-thumb canvas {
+  display: block;
+  min-height: calc(3 * var(--control-lg));
+  background: var(--neutral-0);
+  box-shadow: var(--shadow-sm);
+}
+
+.pdf-thumb-num {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-outline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pdf-outline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  padding-left: calc(var(--depth) * var(--space-md));
+}
+
+.pdf-outline-toggle,
+.pdf-outline-gap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  border-radius: var(--slight);
+  color: var(--text-muted);
+}
+
+.pdf-outline-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.pdf-outline-link {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-sm);
+  padding: var(--space-xxs) var(--space-xs);
+  border-radius: var(--secondary);
+  text-align: left;
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+  color: var(--text-secondary);
+}
+
+.pdf-outline-link:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.pdf-outline-link.current {
+  color: var(--accent-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.pdf-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-sunken);
+}
+
+.pdf-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  outline: none;
+  scrollbar-width: thin;
+}
+
+.pdf-container .pdfViewer {
+  padding-bottom: var(--space-md);
+}
+
+.pdf-container .pdfViewer .page {
+  margin: var(--space-md) auto;
+  border: 0;
+  border-radius: var(--slight);
+  box-shadow: var(--shadow-sm);
+  box-sizing: content-box;
+}
+
+.pdf-container .pdfViewer.removePageBorders .page {
+  margin: var(--space-md) auto;
+}
+
+/* pdf.js' page element shares the kit's .page class name: undo the kit's flex page
+   (direct children only — pages inside a .spread stay inline-block, as pdf_viewer.css says) */
+.pdf-container .pdfViewer > .page {
+  display: block;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* pdf.js' selection and find highlights in Ewe colours */
+.pdf-container .textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.pdf-container .textLayer .highlight {
+  --highlight-bg-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  --highlight-selected-bg-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.pdf--night .pdfViewer .page {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.pdf--night .pdf-stage {
+  background: var(--neutral-950);
+}
+
+.pdf-pagebox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.pdf-pagenum {
+  width: calc(3 * var(--space-md));
+  height: var(--control-sm);
+  padding: 0 var(--space-xs);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--secondary);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+
+.pdf-pagenum:focus {
+  border-color: var(--focus-ring);
+  outline: none;
+}
+
+.pdf-pagecount {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-zoom,
+.iv-zoom {
+  gap: var(--space-xxs);
+  min-width: calc(5 * var(--space-md));
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-password {
+  display: flex;
+}
+
+.pdf-password .field {
+  flex: 1;
+}
+
+/* presentation: the chrome goes, the page fills the window on black */
+.pdf--presentation .view-toolbar,
+.pdf--presentation .findbar,
+.pdf--presentation .pdf-side {
+  display: none;
+}
+
+.pdf--presentation .pdf-stage {
+  background: var(--black);
+}
+
+.pdf--presentation .pdf-container .pdfViewer .page {
+  margin: 0 auto;
+  box-shadow: none;
+}
+
+.pdf--presentation .pdf-container {
+  scrollbar-width: none;
+}
+
+.pdf-present-hint {
+  position: absolute;
+  right: var(--space-md);
+  bottom: var(--space-md);
+  padding: var(--space-xxs) var(--space-s);
+  border-radius: var(--fully-rounded);
+  background: color-mix(in srgb, var(--black) 60%, transparent);
+  color: var(--neutral-200);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: ewe-fade-in var(--dur-base) var(--ease-out);
+}
+
+.app:has(.pdf--presentation) .app-header {
+  display: none;
+}
+
+/* ── text, code, Markdown (ported from ewe Browser's textview) ────────────── */
+
+.tv {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.tv-message {
+  color: var(--text-muted);
+}
+
+.tv-code {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-view-size, var(--font-size-s));
+  line-height: 1.55;
+  user-select: text;
+  scrollbar-width: thin;
+}
+
+.tv-gutter,
+.tv-source {
+  margin: 0;
+  padding: var(--space-md) var(--space-s);
+  font: inherit;
+}
+
+.tv-gutter {
+  position: sticky;
+  left: 0;
+  flex: none;
+  min-width: calc(3 * var(--space-md));
+  padding-right: var(--space-s);
+  text-align: right;
+  color: var(--text-disabled);
+  background: var(--surface-raised);
+  border-right: var(--border-width-1) solid var(--border-subtle);
+  user-select: none;
+}
+
+.tv-source {
+  flex: 1;
+  padding-left: var(--space-md);
+  white-space: pre;
+  tab-size: 4;
+}
+
+.tv-code--wrap .tv-source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tv-markdown {
+  flex: 1;
+  min-height: 0;
+  /* a reading column of about 80 characters, centred when the window is wider */
+  padding: var(--space-lg) max(var(--space-md), calc((100% - 80ch) / 2));
+  overflow-y: auto;
+  font-size: calc(var(--text-view-size, var(--font-size-s)) + 2px);
+  line-height: 1.65;
+  user-select: text;
+  scrollbar-width: thin;
+}
+
+.tv-markdown h1,
+.tv-markdown h2,
+.tv-markdown h3,
+.tv-markdown h4 {
+  line-height: 1.25;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-snug);
+}
+
+.tv-markdown h1 {
+  padding-bottom: var(--space-s);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  font-size: var(--font-size-3xl);
+}
+
+.tv-markdown h2 {
+  font-size: var(--font-size-2xl);
+}
+
+.tv-markdown h3 {
+  font-size: var(--font-size-xl);
+}
+
+.tv-markdown a {
+  color: var(--accent-text);
+}
+
+.tv-markdown code {
+  padding: 0 var(--space-xs);
+  border-radius: var(--slight);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.tv-markdown pre {
+  padding: var(--space-md);
+  overflow-x: auto;
+  border-radius: var(--primary);
+  background: var(--surface-sunken);
+}
+
+.tv-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.tv-markdown blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: var(--space-md);
+  border-left: var(--border-width-2) solid var(--accent);
+  color: var(--text-secondary);
+}
+
+.tv-markdown img {
+  max-width: 100%;
+  border-radius: var(--primary);
+}
+
+.tv-markdown table {
+  border-collapse: collapse;
+}
+
+.tv-markdown th,
+.tv-markdown td {
+  padding: var(--space-xs) var(--space-s);
+  border: var(--border-width-1) solid var(--border-subtle);
+}
+
+.tv-markdown hr {
+  border: 0;
+  border-top: var(--border-width-1) solid var(--border-subtle);
+}
+
+.tv-markdown input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+.tv-note {
+  flex: none;
+  padding: var(--space-xs) var(--space-md);
+  border-top: var(--border-width-1) solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* highlight.js classes → Ewe status tokens (same mapping as ewe Browser) */
+.hljs {
+  color: var(--text-primary);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type,
+.hljs-doctag,
+.hljs-meta {
+  color: var(--accent-text);
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag,
+.hljs-addition,
+.hljs-regexp {
+  color: var(--success);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--warning);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-function .hljs-title {
+  color: var(--info);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attribute,
+.hljs-tag,
+.hljs-params {
+  color: var(--text-secondary);
+}
+
+.hljs-deletion {
+  color: var(--danger);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ── pictures ─────────────────────────────────────────────────────────────── */
+
+.iv {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.iv-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.iv-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  touch-action: none;
+  outline: none;
+}
+
+.iv-stage--checker {
+  background-color: var(--surface-sunken);
+  background-image:
+    linear-gradient(
+      45deg,
+      var(--surface-pressed) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--surface-pressed) 75%
+    ),
+    linear-gradient(
+      45deg,
+      var(--surface-pressed) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--surface-pressed) 75%
+    );
+  background-size: var(--space-md) var(--space-md);
+  background-position:
+    0 0,
+    calc(var(--space-md) / 2) calc(var(--space-md) / 2);
+}
+
+.iv--slideshow .iv-stage {
+  background: var(--black);
+}
+
+.iv-image {
+  display: block;
+  max-width: none;
+  max-height: none;
+  transform-origin: center;
+  transition: transform var(--dur-fast) var(--ease-out);
+  will-change: transform;
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.iv-stage--zoomed .iv-image {
+  cursor: grab;
+}
+
+.iv-stage--drag .iv-image {
+  transition: none;
+  cursor: grabbing;
+}
+
+.iv-nav {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-xl);
+  height: var(--control-xl);
+  margin-top: calc(var(--control-xl) / -2);
+  border-radius: var(--fully-rounded);
+  background: color-mix(in srgb, var(--surface-overlay) 80%, transparent);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.iv-stage:hover .iv-nav,
+.bk-stage:hover .iv-nav,
+.iv-nav:focus-visible {
+  opacity: 1;
+}
+
+.iv-nav:hover {
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+}
+
+.iv-nav.prev {
+  left: var(--space-md);
+}
+
+.iv-nav.next {
+  right: var(--space-md);
+}
+
+.iv-nav-glyph {
+  font-size: var(--font-size-2xl);
+  line-height: 1;
+  translate: 0 -1px;
+}
+
+.iv-info {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: var(--panel-sm);
+  padding: var(--space-md);
+  overflow: auto;
+  border-left: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+  scrollbar-width: thin;
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
+}
+
+.iv-info-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.iv-info .info-rows {
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+}
+
+.iv-info-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+}
+
+.iv-info-row {
   display: flex;
   align-items: center;
   gap: var(--space-s);
   color: var(--text-secondary);
+  font-size: var(--font-size-s);
 }
 
-.demo-paths {
+/* ── books ────────────────────────────────────────────────────────────────── */
+
+.bk {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--space-xs);
-  max-width: var(--panel-lg);
-  font-family: var(--font-mono);
+  min-height: 0;
+}
+
+.bk-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.bk-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-sunken);
+}
+
+.bk--light .bk-stage {
+  background: var(--neutral-0);
+}
+
+.bk--dark .bk-stage {
+  background: var(--neutral-900);
+}
+
+.bk--sepia .bk-stage {
+  background: color-mix(in srgb, var(--warning-subtle) 60%, var(--neutral-0));
+}
+
+.bk-host,
+.bk-host foliate-view {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.bk-nav {
+  opacity: 0;
+}
+
+.bk-font {
+  min-width: calc(2.5 * var(--space-md));
+  color: var(--text-secondary);
   font-size: var(--font-size-s);
-  line-height: var(--line-height-s);
-  color: var(--text-muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.bk-progress {
+  flex: none;
+  height: var(--border-width-2);
+  background: var(--surface-pressed);
+}
+
+.bk-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+/* ── comics ───────────────────────────────────────────────────────────────── */
+
+.cb {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cb-options {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-s);
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--font-size-s);
+}
+
+.cb-options > span {
+  margin-right: var(--space-md);
+}
+
+.cb-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-height: 0;
+  padding: var(--space-s);
+  overflow: hidden;
+  background: var(--neutral-950);
+  outline: none;
+}
+
+.cb-stage--width {
+  align-items: flex-start;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.cb-page {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: var(--shadow-float);
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
+}
+
+.cb-stage--width .cb-page {
+  width: 100%;
+  max-height: none;
+  height: auto;
+}
+
+.cb-stage--spread .cb-page {
+  max-width: 50%;
+}
+
+.cb-stage--width.cb-stage--spread .cb-page {
+  width: 50%;
+}
+
+.cb-page--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(var(--panel-md), 45%);
+  aspect-ratio: 2 / 3;
+  padding: var(--space-lg);
+  background: var(--surface-raised);
+  border-radius: var(--slight);
+}
+
+/* ── spreadsheets ─────────────────────────────────────────────────────────── */
+
+.sh {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sh-tabs {
+  flex: none;
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+.sh-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface-raised);
+  scrollbar-width: thin;
   user-select: text;
 }
 
-.demo-stack {
+.sh-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-grid th,
+.sh-grid td {
+  max-width: calc(14 * var(--space-md));
+  padding: var(--space-xxs) var(--space-s);
+  border-right: var(--border-width-1) solid var(--border-subtle);
+  border-bottom: var(--border-width-1) solid var(--border-subtle);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+
+.sh-scroll--wrap .sh-grid td {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sh-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.sh-grid .sh-col {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.sh-grid .sh-header th {
+  top: calc(var(--line-height-xs) + 2 * var(--space-xxs) + var(--border-width-1));
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sh-grid .sh-rownum,
+.sh-grid .sh-corner {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: calc(2 * var(--space-md));
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  text-align: right;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+}
+
+.sh-grid thead .sh-corner,
+.sh-grid thead .sh-rownum {
+  z-index: 3;
+}
+
+.sh-grid tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.sh-grid td.sh-num {
+  text-align: right;
+}
+
+/* ── Word documents ───────────────────────────────────────────────────────── */
+
+.dx {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dx-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-md);
+  overflow: auto;
+  background: var(--surface-sunken);
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.dx-host {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  zoom: var(--docx-zoom, 1);
+}
+
+.dx-host .docx-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: var(--space-md);
-  padding: var(--space-xxs) 0;
+  padding: 0;
+  background: transparent;
+}
+
+.dx-host .docx-wrapper > section.docx {
+  margin-bottom: 0;
+  border-radius: var(--slight);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── other files ──────────────────────────────────────────────────────────── */
+
+.ov-note {
+  max-width: var(--panel-md);
+  margin: 0;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ov-apps {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-s);
+  width: min(var(--panel-sm), 100%);
+}
+
+.ov-apps-title {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  text-align: center;
+}
+
+/* ── start screen ─────────────────────────────────────────────────────────── */
+
+.start {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.start-hero {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+}
+
+.start-recent {
+  padding: 0 var(--space-lg) var(--space-lg);
+}
+
+.start-heading {
+  margin: 0 0 var(--space-s);
+  color: var(--text-secondary);
+  font-size: var(--font-size-s);
+  font-weight: var(--font-weight-medium);
+}
+
+.start-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(9 * var(--space-md)), 1fr));
+  gap: var(--space-s);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-s);
+  border: var(--border-width-1) solid transparent;
+  border-radius: var(--primary);
+  text-align: left;
+}
+
+.start-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-subtle);
+}
+
+.start-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--secondary);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+}
+
+.start-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.start-thumb--pdf img {
+  object-fit: contain;
+  object-position: top;
+  background: var(--neutral-0);
+}
+
+.start-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-s);
+  font-weight: var(--font-weight-medium);
+}
+
+.start-card-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* ── printing ─────────────────────────────────────────────────────────────── */
+
+#print-pages {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .app {
+    display: none;
+  }
+
+  #print-pages {
+    display: block;
+  }
+
+  .print-sheet {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-sheet img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  /* a Word document prints as is */
+  body:has(.dx .dx-host section.docx):not(:has(#print-pages .print-sheet)) .app {
+    display: block;
+  }
+
+  body:has(.dx .dx-host section.docx):not(:has(#print-pages .print-sheet)) .app > *:not(.app-body),
+  body:has(.dx .dx-host section.docx):not(:has(#print-pages .print-sheet)) .view-toolbar {
+    display: none;
+  }
+
+  body:has(.dx .dx-host section.docx):not(:has(#print-pages .print-sheet)) .dx-scroll {
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
 }

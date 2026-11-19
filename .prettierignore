@@ -4,3 +4,4 @@ target
 pnpm-lock.yaml
 apps/*/src-tauri/gen
 packages/ui/src/fonts
+apps/*/src/vendor

@@ -182,7 +182,13 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
 - [x] scaffold (workspace, @ewe/ui, @ewe/shared, ewe-app-core, three apps that open themed) — 2026-11-19
 - [ ] ewe Files
 - [ ] ewe Player
-- [ ] ewe Viewer
+- [x] ewe Viewer — 2026-11-19, branch `feat/viewer`: every format in the list above opens (PDF via
+      pdf.js components with forms/find/outline/presentation/print/password/night, EPUB via
+      foliate-js, CBZ/CBR, Markdown/text/code, DOCX, XLSX/ODS/CSV, pictures with EXIF/wallpaper/
+      Trash, Open with… for the rest), tabs + start screen + drag-drop + single instance,
+      `--key=value` flags for every state; screenshots dark + light in the agents' map. Not done:
+      annotations are shown but not editable; HEIC depends on the system's glycin loader; print
+      and the GTK dialogs could not be exercised headless (owner's real-machine list in the report).
 - [x] packaging + CI + release workflow — 2026-11-19 (desktop entries, icons, PKGBUILD, ci.yml, release.yml; the GitHub repo and the first tag are the owner's call)
 - [x] ewe package diet, mime defaults, shell references (+ Settings → Default apps rows)
 - [x] ewe-repo (Reversal dedupe via hardlink, publish ewe-apps, gate blacklists nvidia-utils)

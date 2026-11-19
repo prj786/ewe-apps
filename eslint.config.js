@@ -6,7 +6,13 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/target/**', '**/src-tauri/gen/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/target/**',
+      '**/src-tauri/gen/**',
+      '**/src/vendor/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,

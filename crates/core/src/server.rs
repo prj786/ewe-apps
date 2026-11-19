@@ -14,8 +14,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Query, State};
+use axum::extract::{Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde::Serialize;
@@ -348,12 +349,44 @@ pub fn start(thumbs: Thumbs) -> std::io::Result<MediaServer> {
     })
 }
 
+/// The webview's origin is `tauri://localhost`, so `fetch()` (text, pdf.js) needs
+/// CORS; `<img>` and `<video>` never did. Range requests preflight, hence OPTIONS.
+async fn cors(req: Request, next: Next) -> Response {
+    let preflight = req.method() == axum::http::Method::OPTIONS;
+    let mut res = if preflight {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(req).await
+    };
+    let h = res.headers_mut();
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("Range, If-None-Match"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static(
+            "Accept-Ranges, Content-Range, Content-Length, Content-Type, ETag",
+        ),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("86400"),
+    );
+    res
+}
+
 fn router(shared: Arc<Shared>) -> Router {
     Router::new()
         .route("/raw/{name}", get(raw))
         .route("/thumb", get(thumb))
         .route("/cover", get(cover))
         .fallback(|| async { StatusCode::NOT_FOUND })
+        .layer(axum::middleware::from_fn(cors))
         .with_state(shared)
 }
 

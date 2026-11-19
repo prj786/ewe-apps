@@ -1864,11 +1864,120 @@
   width: 100%;
 }
 
-.fm-content.list {
-  overflow-x: auto;
+/* ---- narrow panes: the name always wins ------------------------------------- */
+
+.fm-app {
+  width: var(--shot-width, 100%);
+}
+
+.fm {
+  position: relative;
+}
+
+.fm-pane {
+  container-type: inline-size;
+  min-width: 300px;
+}
+
+.fm-places {
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+.fm-places > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fm-toolbar > * {
+  min-width: 0;
+}
+
+.fm-crumbs.hidden,
+.fm-filter.hidden {
+  display: none;
+}
+
+.fm-filter.wide {
+  flex: 1;
+  width: auto;
+}
+
+.fm-pane.narrow .fm-sync-chip span {
+  display: none;
+}
+
+.fm-pane.narrow .fm-sync-chip {
+  padding: 0 var(--space-xs);
 }
 
 .fm-content.list .fm-head,
 .fm-content.list .fm-row {
-  min-width: 480px;
+  min-width: 0;
+}
+
+@container (max-width: 760px) {
+  .fm-head.cols-folder,
+  .fm-row.cols-folder {
+    grid-template-columns: minmax(0, 1fr) 140px 88px;
+  }
+  .fm-head.cols-trash,
+  .fm-row.cols-trash,
+  .fm-head.cols-search,
+  .fm-row.cols-search {
+    grid-template-columns: minmax(0, 1fr) 140px 88px;
+  }
+  .fm-col-kind,
+  .fm-col-where {
+    display: none !important;
+  }
+}
+
+@container (max-width: 560px) {
+  .fm-head.cols-folder,
+  .fm-row.cols-folder,
+  .fm-head.cols-trash,
+  .fm-row.cols-trash,
+  .fm-head.cols-search,
+  .fm-row.cols-search {
+    grid-template-columns: minmax(0, 1fr) 88px;
+  }
+  .fm-col-mtime {
+    display: none !important;
+  }
+}
+
+@container (max-width: 400px) {
+  .fm-head.cols-folder,
+  .fm-row.cols-folder,
+  .fm-head.cols-trash,
+  .fm-row.cols-trash,
+  .fm-head.cols-search,
+  .fm-row.cols-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fm-col-size {
+    display: none !important;
+  }
+}
+
+/* the operations panel is a popover under its toolbar button, not a third column */
+.ops {
+  position: absolute;
+  z-index: 6;
+  top: var(--space-xs);
+  right: var(--space-s);
+  width: var(--panel-sm);
+  max-width: calc(100% - var(--space-md));
+  max-height: calc(100% - var(--space-md));
+  overflow: hidden;
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--rounded);
+  box-shadow: var(--shadow-float);
+  animation: ewe-slide-down var(--dur-base) var(--ease-out);
+}
+
+.ops-head {
+  height: var(--control-xl);
 }

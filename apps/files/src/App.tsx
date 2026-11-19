@@ -1261,6 +1261,36 @@ export function App(): JSX.Element {
             ),
           )
           break
+        case 'ops-preview': {
+          setPref(pane.path(), { view: 'list' })
+          setPrefs((p) => ({ ...p, preview: true }))
+          const src = pick('archlinux-2026.11.iso')
+          if (src !== undefined) {
+            pane.select([src.path])
+            void api.opStart('copy', [src.path], joinHome('Documents')).then((id) => {
+              refreshOps()
+              setOpsOpen(true)
+              after(40, () => void api.opPause(id))
+            })
+          }
+          break
+        }
+        case 'split-list':
+          setPref(pane.path(), { view: 'list' })
+          splitToggle()
+          after(400, () => {
+            const o = otherPane()
+            if (o !== null) {
+              setPref(joinHome('Documents'), { view: 'list' })
+              o.go(joinHome('Documents'))
+            }
+          })
+          break
+        case 'grid-preview':
+          setPref(pane.path(), { view: 'grid' })
+          setPrefs((p) => ({ ...p, preview: true }))
+          if (first !== undefined) pane.select([first.path])
+          break
         case 'rename':
           pane.selectAll()
           after(100, () => setDialog({ kind: 'rename-many', entries: pane.selected(), pane }))
@@ -1287,6 +1317,9 @@ export function App(): JSX.Element {
     refreshOps()
     void api.windowLaunch().then((l) =>
       applyLaunch(l, true).then(() => {
+        const width = l.flags.find((f) => f.startsWith('--shot-width='))
+        if (width !== undefined)
+          document.documentElement.style.setProperty('--shot-width', `${Number(width.slice(13))}px`)
         const shot = l.flags.find((f) => f.startsWith('--shot='))
         if (shot !== undefined) runShot(shot.slice(7))
       }),
@@ -1357,7 +1390,11 @@ export function App(): JSX.Element {
       ctrlHeld = e.ctrlKey
     })
     window.addEventListener('dragend', clearDrag)
-    window.addEventListener('pointerdown', () => setDropTarget(null))
+    window.addEventListener('pointerdown', (e) => {
+      setDropTarget(null)
+      const t = e.target as HTMLElement | null
+      if (opsOpen() && t?.closest('.ops, .fm-ops-btn') === null) setOpsOpen(false)
+    })
     window.addEventListener('beforeunload', () => void api.windowClosed())
     // drops from other apps (and our own uri-list drags) come through Tauri
     let offDrop: (() => void) | null = null
@@ -1413,6 +1450,7 @@ export function App(): JSX.Element {
     entryMenu,
     backgroundMenu,
     sortMenu,
+    menu: (items, at) => setMenu({ at, items }),
     dropTarget,
     setDropTarget,
     onDomDrop,

@@ -39,7 +39,7 @@ import {
   type SortKey,
   type TrashEntry,
 } from '@ewe/shared'
-import { Icon, IconButton, type IconName } from '@ewe/ui'
+import { Icon, IconButton, type IconName, type MenuEntry } from '@ewe/ui'
 import { api, errorText, on as onEvent, windowLabel } from './api'
 import type { ViewPrefs } from './prefs'
 import { SYNC_ICON, syncTitle } from './places'
@@ -147,6 +147,7 @@ export interface PaneCtx {
   entryMenu(pane: PaneHandle, entry: Row, at: Point): void
   backgroundMenu(pane: PaneHandle, at: Point): void
   sortMenu(pane: PaneHandle, at: Point): void
+  menu(items: MenuEntry[], at: Point): void
   dropTarget: Accessor<string | null>
   setDropTarget(path: string | null): void
   onDomDrop(dir: string, e: DragEvent): void
@@ -200,6 +201,12 @@ export function Pane(props: PaneProps): JSX.Element {
   const [viewport, setViewport] = createSignal({ width: 0, height: 0 })
   const [measured, setMeasured] = createSignal<{ row: number; cols: number } | null>(null)
   const OVERSCAN = 2
+  // the toolbar condenses as the pane narrows (split view, side panels)
+  const [paneWidth, setPaneWidth] = createSignal(1280)
+  const [filterOpen, setFilterOpen] = createSignal(false)
+  const tier = (): 'wide' | 'medium' | 'narrow' =>
+    paneWidth() < 560 ? 'narrow' : paneWidth() < 860 ? 'medium' : 'wide'
+  const filterShown = () => tier() === 'wide' || filterOpen() || filter() !== ''
   let filterInput: HTMLInputElement | undefined
   let loadSeq = 0
 
@@ -451,7 +458,8 @@ export function Pane(props: PaneProps): JSX.Element {
     },
     focus: () => content?.focus(),
     focusFilter: (seed) => {
-      filterInput?.focus()
+      setFilterOpen(true)
+      queueMicrotask(() => filterInput?.focus())
       if (seed !== undefined) setFilter((f) => f + seed)
     },
     editPath: () => setEditingPath(true),
@@ -807,7 +815,12 @@ export function Pane(props: PaneProps): JSX.Element {
   return (
     <section
       class="fm-pane"
-      classList={{ active: props.active, searching: search() !== null }}
+      classList={{ active: props.active, searching: search() !== null, [tier()]: true }}
+      ref={(el) => {
+        const ro = new ResizeObserver(() => setPaneWidth(el.clientWidth))
+        ro.observe(el)
+        onCleanup(() => ro.disconnect())
+      }}
       onMouseDown={() => props.onActivate()}
     >
       <header class="fm-toolbar">
@@ -817,12 +830,14 @@ export function Pane(props: PaneProps): JSX.Element {
           disabled={histIndex() <= 0}
           onClick={() => stepHistory(-1)}
         />
-        <IconButton
-          icon="arrow-right"
-          label="Forward"
-          disabled={histIndex() >= history().length - 1}
-          onClick={() => stepHistory(1)}
-        />
+        <Show when={tier() !== 'narrow'}>
+          <IconButton
+            icon="arrow-right"
+            label="Forward"
+            disabled={histIndex() >= history().length - 1}
+            onClick={() => stepHistory(1)}
+          />
+        </Show>
         <IconButton
           icon="arrow-up"
           label="Up (Alt+Up)"
@@ -831,7 +846,10 @@ export function Pane(props: PaneProps): JSX.Element {
         />
         <div
           class="fm-crumbs"
-          classList={{ editing: editingPath() }}
+          classList={{
+            editing: editingPath(),
+            hidden: tier() !== 'wide' && filterShown() && !editingPath(),
+          }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setEditingPath(true)
           }}
@@ -848,10 +866,34 @@ export function Pane(props: PaneProps): JSX.Element {
                   </span>
                 }
               >
-                <Index each={crumbs()}>
+                <Show when={tier() === 'narrow' && crumbs().length > 1}>
+                  <button
+                    class="fm-crumb"
+                    aria-label="Parent folders"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const r = e.currentTarget.getBoundingClientRect()
+                      const parents = crumbs().slice(0, -1).reverse()
+                      ctx().menu(
+                        parents.map((c) => ({
+                          type: 'item' as const,
+                          id: c.path,
+                          label: c.label,
+                          icon: c.label === 'Home' ? ('house' as const) : ('folder' as const),
+                          run: () => go(c.path),
+                        })),
+                        { x: r.left, y: r.bottom + 4 },
+                      )
+                    }}
+                  >
+                    …
+                  </button>
+                  <Icon name="chevron-right" size={12} class="fm-crumb-sep" />
+                </Show>
+                <Index each={tier() === 'narrow' ? crumbs().slice(-1) : crumbs()}>
                   {(crumb, i) => (
                     <>
-                      <Show when={i > 0}>
+                      <Show when={i > 0 && tier() !== 'narrow'}>
                         <Icon name="chevron-right" size={12} class="fm-crumb-sep" />
                       </Show>
                       <button
@@ -872,7 +914,7 @@ export function Pane(props: PaneProps): JSX.Element {
                         }}
                         {...dropHandlers(() => crumb().path)}
                       >
-                        <Show when={crumb().label === 'Home' && i === 0}>
+                        <Show when={crumb().label === 'Home' && i === 0 && tier() !== 'narrow'}>
                           <Icon name="house" size={14} />
                         </Show>
                         {crumb().label}
@@ -923,7 +965,20 @@ export function Pane(props: PaneProps): JSX.Element {
             </Show>
           )}
         </Show>
-        <label class="fm-filter" classList={{ on: filter() !== '' }}>
+        <Show when={!filterShown()}>
+          <IconButton
+            icon="search"
+            label="Filter (Ctrl+F)"
+            onClick={() => {
+              setFilterOpen(true)
+              queueMicrotask(() => filterInput?.focus())
+            }}
+          />
+        </Show>
+        <label
+          class="fm-filter"
+          classList={{ on: filter() !== '', wide: tier() !== 'wide', hidden: !filterShown() }}
+        >
           <Icon name="search" size={14} />
           <input
             ref={filterInput}
@@ -932,10 +987,14 @@ export function Pane(props: PaneProps): JSX.Element {
             spellcheck={false}
             aria-label="Filter this folder"
             onInput={(e) => setFilter(e.currentTarget.value)}
+            onBlur={() => {
+              if (filter() === '') setFilterOpen(false)
+            }}
             onKeyDown={(e) => {
               e.stopPropagation()
               if (e.key === 'Escape') {
                 setFilter('')
+                setFilterOpen(false)
                 content?.focus()
               } else if (e.key === 'Enter' || e.key === 'ArrowDown') {
                 e.preventDefault()
@@ -948,48 +1007,116 @@ export function Pane(props: PaneProps): JSX.Element {
             }}
           />
         </label>
-        <IconButton
-          icon="folder-plus"
-          label="New folder (Ctrl+Shift+N)"
-          disabled={!(listing()?.writable ?? false) || mode() !== 'folder'}
-          onClick={() => ctx().newFolder(handle)}
-        />
-        <IconButton
-          icon={prefs().hidden ? 'eye' : 'eye-off'}
-          label={prefs().hidden ? 'Hide hidden files (Ctrl+H)' : 'Show hidden files (Ctrl+H)'}
-          active={prefs().hidden}
-          onClick={() => ctx().setPref(path(), { hidden: !prefs().hidden })}
-        />
-        <IconButton
-          icon="arrow-up-down"
-          label={`Sort by ${SORT_LABELS[prefs().sort].toLowerCase()}`}
-          onClick={(e) => {
-            const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            ctx().sortMenu(handle, { x: r.left, y: r.bottom + 4 })
-          }}
-        />
-        <div class="fm-views" role="radiogroup" aria-label="View">
-          <button
-            class="fm-view"
-            classList={{ on: prefs().view === 'grid' }}
-            role="radio"
-            aria-checked={prefs().view === 'grid'}
-            title="Grid (Ctrl+1)"
-            onClick={() => ctx().setPref(path(), { view: 'grid' })}
-          >
-            <Icon name="layout-grid" size={14} />
-          </button>
-          <button
-            class="fm-view"
-            classList={{ on: prefs().view === 'list' }}
-            role="radio"
-            aria-checked={prefs().view === 'list'}
-            title="List (Ctrl+2)"
-            onClick={() => ctx().setPref(path(), { view: 'list' })}
-          >
-            <Icon name="list" size={14} />
-          </button>
-        </div>
+        <Show when={tier() !== 'narrow'}>
+          <IconButton
+            icon="folder-plus"
+            label="New folder (Ctrl+Shift+N)"
+            disabled={!(listing()?.writable ?? false) || mode() !== 'folder'}
+            onClick={() => ctx().newFolder(handle)}
+          />
+        </Show>
+        <Show when={tier() === 'wide'}>
+          <IconButton
+            icon={prefs().hidden ? 'eye' : 'eye-off'}
+            label={prefs().hidden ? 'Hide hidden files (Ctrl+H)' : 'Show hidden files (Ctrl+H)'}
+            active={prefs().hidden}
+            onClick={() => ctx().setPref(path(), { hidden: !prefs().hidden })}
+          />
+          <IconButton
+            icon="arrow-up-down"
+            label={`Sort by ${SORT_LABELS[prefs().sort].toLowerCase()}`}
+            onClick={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              ctx().sortMenu(handle, { x: r.left, y: r.bottom + 4 })
+            }}
+          />
+          <div class="fm-views" role="radiogroup" aria-label="View">
+            <button
+              class="fm-view"
+              classList={{ on: prefs().view === 'grid' }}
+              role="radio"
+              aria-checked={prefs().view === 'grid'}
+              title="Grid (Ctrl+1)"
+              onClick={() => ctx().setPref(path(), { view: 'grid' })}
+            >
+              <Icon name="layout-grid" size={14} />
+            </button>
+            <button
+              class="fm-view"
+              classList={{ on: prefs().view === 'list' }}
+              role="radio"
+              aria-checked={prefs().view === 'list'}
+              title="List (Ctrl+2)"
+              onClick={() => ctx().setPref(path(), { view: 'list' })}
+            >
+              <Icon name="list" size={14} />
+            </button>
+          </div>
+        </Show>
+        <Show when={tier() !== 'wide'}>
+          <IconButton
+            icon="ellipsis"
+            label="More"
+            onClick={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              const p = prefs()
+              const items: MenuEntry[] = []
+              if (tier() === 'narrow')
+                items.push({
+                  type: 'item',
+                  id: 'new-folder',
+                  label: 'New folder',
+                  icon: 'folder-plus',
+                  hint: 'Ctrl+Shift+N',
+                  disabled: !(listing()?.writable ?? false) || mode() !== 'folder',
+                  run: () => ctx().newFolder(handle),
+                })
+              items.push(
+                {
+                  type: 'item',
+                  id: 'view-grid',
+                  label: 'Grid',
+                  icon: p.view === 'grid' ? 'check' : 'layout-grid',
+                  hint: 'Ctrl+1',
+                  run: () => ctx().setPref(path(), { view: 'grid' }),
+                },
+                {
+                  type: 'item',
+                  id: 'view-list',
+                  label: 'List',
+                  icon: p.view === 'list' ? 'check' : 'list',
+                  hint: 'Ctrl+2',
+                  run: () => ctx().setPref(path(), { view: 'list' }),
+                },
+                { type: 'separator' },
+                ...SORT_KEYS.map((k): MenuEntry => ({
+                  type: 'item',
+                  id: `sort-${k}`,
+                  label: `Sort by ${SORT_LABELS[k].toLowerCase()}`,
+                  icon: p.sort === k ? 'check' : undefined,
+                  run: () => ctx().setPref(path(), { sort: k }),
+                })),
+                {
+                  type: 'item',
+                  id: 'desc',
+                  label: 'Descending',
+                  icon: p.desc ? 'check' : undefined,
+                  run: () => ctx().setPref(path(), { desc: !p.desc }),
+                },
+                { type: 'separator' },
+                {
+                  type: 'item',
+                  id: 'hidden',
+                  label: p.hidden ? 'Hide hidden files' : 'Show hidden files',
+                  icon: p.hidden ? 'eye-off' : 'eye',
+                  hint: 'Ctrl+H',
+                  run: () => ctx().setPref(path(), { hidden: !p.hidden }),
+                },
+              )
+              ctx().menu(items, { x: r.right, y: r.bottom + 4 })
+            }}
+          />
+        </Show>
       </header>
 
       <Show when={search()}>

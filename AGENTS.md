@@ -178,8 +178,16 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
-- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview`
-  puts a fresh window into that state (used for the screenshots). `dev_log` prints the webview's
+- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview`
+  puts a fresh window into that state (used for the screenshots); `--shot-width=900` narrows the
+  app root to check a small window inside cage's fixed 1280×720 output.
+- Narrow panes (split view, the preview pane): the pane is a CSS container; the list drops Type
+  (< 760px), then Modified (< 560px), then Size (< 400px) and the name ellipsizes, never
+  vanishes. The toolbar condenses by pane width (`tier`: wide ≥ 860, medium, narrow < 560):
+  the filter becomes a button that expands in place of the crumbs, hidden/sort/view move into a
+  ⋯ menu, and below 560 the crumbs collapse to "… › folder" (the … opens the parents) and New
+  folder joins the menu. The Operations panel is a popover under its toolbar button (closes on
+  a click outside), not a third column; a pane never goes under 300px. `dev_log` prints the webview's
   uncaught errors and unhandled rejections to stderr (`<out>.png.log` under shot.sh).
 - Measured 2026-11-19 (release, headless cage): 3 pictures in a grid 236 MB PSS; a 3200-entry
   folder 238 MB PSS in the grid and 229 MB in the list (735 MB before the rows were windowed).

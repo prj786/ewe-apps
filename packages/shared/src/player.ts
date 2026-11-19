@@ -102,7 +102,7 @@ export function isRemoteUrl(text: string): boolean {
 export function toMediaItem(pathOrUrl: string): MediaItem | null {
   if (isRemoteUrl(pathOrUrl)) {
     const url = pathOrUrl.trim()
-    let name = url
+    let name: string
     try {
       const u = new URL(url)
       const last = baseName(u.pathname)
@@ -268,21 +268,20 @@ export function rememberPosition(
   duration: number,
   now = Date.now(),
 ): Record<string, SavedPosition> {
-  const next = { ...saved }
+  const next = new Map(Object.entries(saved))
   const worth = duration > 60 && position > 5 && position < duration - 10
   if (!worth) {
-    delete next[path]
-    return next
+    next.delete(path)
+    return Object.fromEntries(next)
   }
-  next[path] = { position, duration, at: now }
-  const keys = Object.keys(next)
-  if (keys.length > MAX_SAVED_POSITIONS) {
-    keys
-      .sort((a, b) => (next[a]?.at ?? 0) - (next[b]?.at ?? 0))
-      .slice(0, keys.length - MAX_SAVED_POSITIONS)
-      .forEach((k) => delete next[k])
+  next.set(path, { position, duration, at: now })
+  if (next.size > MAX_SAVED_POSITIONS) {
+    const oldest = [...next.entries()]
+      .sort((a, b) => a[1].at - b[1].at)
+      .slice(0, next.size - MAX_SAVED_POSITIONS)
+    for (const [k] of oldest) next.delete(k)
   }
-  return next
+  return Object.fromEntries(next)
 }
 
 /** Move an item inside a list (drag to reorder). */

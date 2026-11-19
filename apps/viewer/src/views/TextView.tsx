@@ -264,10 +264,15 @@ export function TextView(props: ViewProps): JSX.Element {
     }
   }
 
+  // deferred: a `--source` flag sets the first value and must not become the default
   createEffect(
-    on(mode, (m) => {
-      if (isMarkdown()) setSetting('mdMode', m)
-    }),
+    on(
+      mode,
+      (m) => {
+        if (isMarkdown()) setSetting('mdMode', m)
+      },
+      { defer: true },
+    ),
   )
 
   useKeys(

@@ -40,7 +40,7 @@ depends=(
 optdepends=(
   'ewe: the desktop these are the apps of (theme-tokens.json, ewe-conf)'
   'plocate: "Search everywhere" in ewe Files'
-  'unar: RAR archives bsdtar cannot open'
+  'unarchiver: RAR archives bsdtar cannot open (unar, lsar)'
 )
 makedepends=('rust' 'cargo' 'nodejs' 'npm')
 

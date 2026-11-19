@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=ewe Viewer
+GenericName=Document Viewer
+Comment=Read PDFs, books, pictures, text and spreadsheets
+Exec=ewe-viewer %U
+TryExec=ewe-viewer
+Icon=ewe-viewer
+Terminal=false
+Categories=Office;Viewer;Graphics;2DGraphics;RasterGraphics;GTK;
+Keywords=pdf;document;viewer;reader;epub;book;image;picture;photo;markdown;text;docx;spreadsheet;csv;ewe;
+MimeType=application/pdf;application/x-pdf;application/epub+zip;application/vnd.comicbook+zip;application/vnd.comicbook-rar;application/x-cbz;application/x-cbr;image/png;image/jpeg;image/gif;image/webp;image/avif;image/bmp;image/svg+xml;image/svg+xml-compressed;image/tiff;image/x-icon;image/vnd.microsoft.icon;image/heif;image/heic;image/jxl;image/x-tga;image/x-portable-pixmap;image/x-xpixmap;image/qoi;text/markdown;text/plain;text/x-log;text/csv;text/tab-separated-values;text/x-python;text/x-shellscript;text/x-csrc;text/x-c++src;text/x-rust;text/x-go;application/json;application/x-yaml;application/toml;text/html;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;application/vnd.oasis.opendocument.text;application/rtf;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel;application/vnd.oasis.opendocument.spreadsheet;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.ms-powerpoint;application/vnd.oasis.opendocument.presentation;
+StartupWMClass=ewe-viewer
+StartupNotify=true

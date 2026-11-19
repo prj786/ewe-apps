@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=ewe Files
+GenericName=File Manager
+Comment=Browse your files, folders, drives and archives
+Exec=ewe-files-app %U
+TryExec=ewe-files-app
+Icon=ewe-files-app
+Terminal=false
+Categories=System;FileTools;FileManager;Utility;Core;GTK;
+Keywords=files;folders;browse;manager;explorer;disk;archive;zip;ewe;
+MimeType=inode/directory;x-scheme-handler/trash;application/zip;application/x-7z-compressed;application/x-tar;application/x-compressed-tar;application/x-bzip-compressed-tar;application/x-xz-compressed-tar;application/x-zstd-compressed-tar;application/zstd;application/gzip;application/x-bzip2;application/x-xz;application/x-lz4;application/vnd.rar;application/x-rar;application/x-cpio;application/x-archive;application/x-iso9660-image;application/java-archive;application/vnd.debian.binary-package;application/x-rpm;application/vnd.android.package-archive;
+StartupWMClass=ewe-files-app
+StartupNotify=true
+DBusActivatable=false
+X-GNOME-UsesNotifications=true

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=ewe Player
+GenericName=Media Player
+Comment=Play videos and music
+Exec=ewe-player %U
+TryExec=ewe-player
+Icon=ewe-player
+Terminal=false
+Categories=AudioVideo;Audio;Video;Player;GTK;
+Keywords=video;music;player;movie;film;song;album;playlist;mpv;ewe;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/x-ms-wmv;video/x-flv;video/mpeg;video/mp2t;video/3gpp;video/ogg;video/x-m4v;video/vnd.avi;application/x-matroska;audio/mpeg;audio/mp4;audio/x-m4a;audio/flac;audio/x-flac;audio/ogg;audio/x-vorbis+ogg;audio/x-opus+ogg;audio/opus;audio/aac;audio/x-aac;audio/x-wav;audio/wav;audio/x-ms-wma;audio/x-aiff;audio/x-matroska;audio/webm;audio/x-mpegurl;audio/mpegurl;application/vnd.apple.mpegurl;application/x-mpegurl;audio/x-scpls;
+StartupWMClass=ewe-player
+StartupNotify=true

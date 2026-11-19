@@ -636,9 +636,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         video.load()
         return
       }
+      // setting src starts the load; an extra load() would abort and restart the fetch
       video.src = url
       video.playbackRate = 1
-      video.load()
       if (it !== undefined && !it.remote) {
         void addRecent(it.path).catch(() => undefined)
         void subtitleFiles(it.path).then((files) => {

@@ -13,7 +13,9 @@
 # SHOT_WAIT (seconds, default 1.5) is how long the window gets to settle.
 # SHOT_KEEP=1 leaves the app running (for curl against the media server) until
 # the file $OUT.done appears — see AGENTS.md. EWE_APPS_MEDIA_SERVER_FILE=<path> makes
-# the app write its media server's {port, token} there (for curl).
+# the app write its media server's {port, token} there (for curl). EWE_MUSIC_DIR,
+# GST_PLUGIN_PATH and GST_DEBUG pass through (ewe Player: a private music root, an
+# extracted gst-libav, decoder traces in <out>.log).
 set -euo pipefail
 bin=$1; theme=$2; out=$3; shift 3
 [ -x "$bin" ] || { echo "no binary $bin" >&2; exit 1; }
@@ -32,6 +34,7 @@ env -i HOME="$HOME" PATH="$PATH" XDG_RUNTIME_DIR="$rt" WLR_BACKENDS=headless WLR
   WLR_LIBINPUT_NO_DEVICES=1 LANG="${LANG:-C.UTF-8}" "${cfg_env[@]}" \
   SHOT_WAIT="${SHOT_WAIT:-1.5}" SHOT_KEEP="${SHOT_KEEP:-}" OUT="$out" \
   EWE_APPS_MEDIA_SERVER_FILE="${EWE_APPS_MEDIA_SERVER_FILE:-}" \
+  EWE_MUSIC_DIR="${EWE_MUSIC_DIR:-}" GST_PLUGIN_PATH="${GST_PLUGIN_PATH:-}" GST_DEBUG="${GST_DEBUG:-}" GST_DEBUG_NO_COLOR=1 \
   dbus-run-session -- cage -- bash -c '
     "$0" "$@" > "$OUT.log" 2>&1 &
     app=$!

@@ -42,7 +42,35 @@ fn startup() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
+/// WebKitGTK's GStreamer backend reads these before the first media element is created.
+/// They must be in the environment before the WebProcess starts, so they are set here
+/// (never overriding what the user exported).
+///
+/// - `WPE_SHELL_MEDIA_DISK_CACHE_SIZE_{BYTES,NSEC}`: the `downloadbuffer` WebKit puts
+///   between the loopback server and the demuxer defaults to 100 KB / 5 s and estimates
+///   buffered *time* from the download rate — at loopback speed that reads as "5 %
+///   buffered" and WebKit holds the pipeline in PAUSED forever (verified on 5–20 MB
+///   files; audio-only and sub-MB files escaped it). A big buffer makes it honest.
+/// - `WEBKIT_GST_ENABLE_HLS_SUPPORT` / `_DASH_SUPPORT`: off by default in WebKitGTK;
+///   needed for `.m3u8` / `.mpd` URLs.
+fn webkit_media_env() {
+    const DEFAULTS: &[(&str, &str)] = &[
+        ("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES", "536870912"),
+        ("WPE_SHELL_MEDIA_DISK_CACHE_SIZE_NSEC", "600000000000"),
+        ("WEBKIT_GST_ENABLE_HLS_SUPPORT", "1"),
+        ("WEBKIT_GST_ENABLE_DASH_SUPPORT", "1"),
+    ];
+    for (key, value) in DEFAULTS {
+        if std::env::var_os(key).is_none_or(|v| v.is_empty()) {
+            // SAFETY: called from `run()` before any other thread exists (Tauri, tokio
+            // and GTK start after this).
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+}
+
 pub fn run() {
+    webkit_media_env();
     ewe_app_core::run_with(
         SPEC,
         tauri::generate_context!(),

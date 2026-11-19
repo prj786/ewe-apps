@@ -212,10 +212,10 @@ async fn raw(
         HeaderValue::from_static("Accept-Ranges, Content-Range, Content-Length, ETag"),
     );
     out.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
-    out.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-cache"),
-    );
+    // no-store, not no-cache: WebKit's network cache keeps aborted partial bodies and,
+    // after a 304 on revalidation, hands them back as the whole file — a <video> then
+    // sits at "buffering 5 %" forever. These are local files; caching gains nothing.
+    out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     if let Ok(v) = HeaderValue::from_str(&content_type(&name)) {
         out.insert(header::CONTENT_TYPE, v);
     }

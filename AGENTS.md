@@ -183,3 +183,33 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
   are listed explicitly).
 - pnpm: `pnpm-workspace.yaml` `allowBuilds` whitelists esbuild and the Tauri CLI; a new
   dependency with a postinstall script needs adding there.
+- ewe Player: WebKitGTK publishes its **own** MPRIS player for any page that plays media
+  (`org.mpris.MediaPlayer2.org.webkit.app-<hash>.Sandboxed.instance-N`, owned by the
+  WebKitWebProcess). The `MediaSession` / `MediaSessionManagerInUIProcess` runtime features do
+  not stop it and only the owner can release a bus name, so it stays; the shell's now-playing
+  has to skip `org.webkit.*` players (ewe repo), ours is `org.mpris.MediaPlayer2.ewe-player`.
+- A Tauri event emitted before the webview called `listen()` is lost: a fast library scan
+  finished before the music page subscribed and the page said "Scanning…" forever. Subscribe
+  first (`await listen(...)`), then invoke the command that starts the work.
+- `tauri::Builder::setup` replaces the previous hook, and the core registers its own — an
+  app's start-up goes in a plugin (`tauri::plugin::Builder::new("…").setup(…)`) handed to
+  `ewe_app_core::run_with`.
+- `HTMLMediaElement.audioTracks` is a WebKit extra: not in lib.dom (declare a small
+  interface) and not iterable (index loop, eslint `prefer-for-of` disabled on that line).
+- `@tauri-apps/plugin-dialog` option objects do not accept `defaultPath: undefined` under
+  `exactOptionalPropertyTypes`; spread `{ defaultPath }` only when known.
+- lofty 0.22: `Tag::get_string(&ItemKey::X)` takes a reference; lofty reads no ASF/WMA tags
+  (WMA shows up as "Unknown album" with the file name as title).
+- **WebKit's media download buffer** (`GST_PLAY_FLAG_DOWNLOAD` → GStreamer `downloadbuffer`,
+  100 KB / 5 s by default) estimates buffered time from the download rate; fed from the
+  loopback server at ~100 MB/s it reports "5 % buffered" and WebKit parks the pipeline in
+  PAUSED — 5–20 MB videos with audio never started, audio-only and sub-MB files did. ewe Player
+  sets `WPE_SHELL_MEDIA_DISK_CACHE_SIZE_BYTES=512 MiB` / `_NSEC=600 s` in its own environment
+  before WebKit starts (`webkit_media_env()` in lib.rs); any app that plays long media through
+  the server needs the same. `WEBKIT_GST_ENABLE_HLS_SUPPORT=1` is needed for `.m3u8` URLs.
+  `GST_DEBUG=webkitmediaplayer:6,downloadbuffer:5` is how to see it.
+- Headless cage has no audio server: GStreamer falls back to a fake sink, audio files still
+  play and advance (good for the matrix) but nothing is audible. VA-API decoding works there
+  (`GST_DEBUG=GST_ELEMENT_FACTORY:4` shows `vah264dec` / `vah265dec` being created).
+- ffmpeg's `gradients` filter writes semi-transparent RGBA PNGs; a test cover that "does not
+  show" may just be 35 % opaque — generate covers with `-pix_fmt rgb24`.

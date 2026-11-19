@@ -348,12 +348,67 @@ pub fn start(thumbs: Thumbs) -> std::io::Result<MediaServer> {
     })
 }
 
+/// The webview's origin may `fetch()` from here (text, PDFs with Range requests, books,
+/// spreadsheets): CORS for the app's own origins only — `tauri://localhost` and the Vite
+/// dev servers. The per-run token still guards every byte; this only lets the page read
+/// what it already may ask for. Other origins get no header and the browser refuses.
+fn cors_origin_ok(origin: &str) -> bool {
+    origin == "tauri://localhost"
+        || origin == "http://tauri.localhost"
+        || origin.starts_with("http://localhost:")
+        || origin.starts_with("http://127.0.0.1:")
+}
+
+async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|o| cors_origin_ok(o))
+        .map(str::to_string);
+    let preflight = req.method() == axum::http::Method::OPTIONS;
+    let mut res = if preflight {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(req).await
+    };
+    if let Some(origin) = origin
+        && let Ok(v) = HeaderValue::from_str(&origin)
+    {
+        let h = res.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+        h.insert(header::VARY, HeaderValue::from_static("Origin"));
+        h.insert(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            HeaderValue::from_static(
+                "Accept-Ranges, Content-Range, Content-Length, ETag, Content-Type",
+            ),
+        );
+        if preflight {
+            h.insert(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET, HEAD, OPTIONS"),
+            );
+            h.insert(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                HeaderValue::from_static("Range, If-None-Match, If-Range, Content-Type"),
+            );
+            h.insert(
+                header::ACCESS_CONTROL_MAX_AGE,
+                HeaderValue::from_static("86400"),
+            );
+        }
+    }
+    res
+}
+
 fn router(shared: Arc<Shared>) -> Router {
     Router::new()
         .route("/raw/{name}", get(raw))
         .route("/thumb", get(thumb))
         .route("/cover", get(cover))
         .fallback(|| async { StatusCode::NOT_FOUND })
+        .layer(axum::middleware::from_fn(cors))
         .with_state(shared)
 }
 
@@ -494,5 +549,41 @@ mod tests {
         let (head, _) = get(Some("bytes=5000-"), &token).await;
         assert!(head.starts_with("HTTP/1.1 416"), "{head}");
         assert!(head.contains("content-range: bytes */1000"));
+    }
+
+    #[test]
+    fn cors_only_for_the_apps_origins() {
+        assert!(cors_origin_ok("tauri://localhost"));
+        assert!(cors_origin_ok("http://localhost:5183"));
+        assert!(cors_origin_ok("http://127.0.0.1:5181"));
+        assert!(!cors_origin_ok("https://example.com"));
+        assert!(!cors_origin_ok("http://localhost.evil.com:80"));
+        assert!(!cors_origin_ok("null"));
+    }
+
+    #[tokio::test]
+    async fn answers_preflight_and_reflects_the_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let (addr, _h) = serve_on(Thumbs::new(dir.path().join("cache")), "t".into())
+            .await
+            .unwrap();
+        let ask = |req: String| async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut s, req.as_bytes())
+                .await
+                .unwrap();
+            let mut buf = Vec::new();
+            s.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf).to_ascii_lowercase()
+        };
+        let pre = ask("OPTIONS /raw/a.pdf?path=/x&t=t HTTP/1.1\r\nHost: x\r\nOrigin: tauri://localhost\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: range\r\nConnection: close\r\n\r\n".into()).await;
+        assert!(pre.starts_with("http/1.1 204"), "{pre}");
+        assert!(
+            pre.contains("access-control-allow-origin: tauri://localhost"),
+            "{pre}"
+        );
+        assert!(pre.contains("access-control-allow-headers: range"), "{pre}");
+        let other = ask("GET /raw/a.pdf?path=/x&t=t HTTP/1.1\r\nHost: x\r\nOrigin: https://evil.example\r\nConnection: close\r\n\r\n".into()).await;
+        assert!(!other.contains("access-control-allow-origin"), "{other}");
     }
 }

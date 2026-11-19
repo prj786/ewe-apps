@@ -19,3 +19,18 @@ tauri = { workspace = true }
 ewe-app-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# GTK file chooser for Open file / folder / Load subtitles / Save playlist
+tauri-plugin-dialog = "2"
+# org.mpris.MediaPlayer2.ewe-player on the session bus (zbus underneath, which also
+# does the org.freedesktop.ScreenSaver Inhibit call)
+mpris-server = { version = "0.11", features = ["tokio"] }
+# tags, durations and embedded covers for the music library
+lofty = "0.22"
+percent-encoding = "2"
+md-5 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+tempfile = "3"
+

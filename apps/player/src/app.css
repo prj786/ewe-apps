@@ -1,27 +1,192 @@
-/* app-specific rules; tokens only (see @ewe/ui styles/tokens.css for the names) */
+/* ewe Player — app-level rules; tokens only (see @ewe/ui styles/tokens.css for the names).
+   Sizes the kit has no token for are composed from tokens with calc(). */
 
-.demo-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
-  color: var(--text-secondary);
+:root {
+  --player-nav-width: calc(var(--panel-sm) * 0.6);
+  --player-panel-width: calc(var(--panel-sm) - var(--space-xl));
+  --player-bar-height: calc(var(--control-2xl) + var(--space-lg));
+  --player-tile: calc(var(--control-2xl) * 3.5);
 }
 
-.demo-paths {
+.app-header .seg {
+  margin-left: var(--space-s);
+}
+
+.app.fullscreen .app-header,
+.app.mini .app-header {
+  display: none;
+}
+
+.app-body {
+  background: var(--surface-base);
+}
+
+/* --- drop target --------------------------------------------------------------------- */
+
+.drop-hint {
+  position: absolute;
+  inset: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-s);
+  border: var(--border-width-2) dashed var(--accent);
+  border-radius: var(--rounded);
+  background: var(--scrim);
+  color: var(--accent-text);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  pointer-events: none;
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
+  z-index: 5;
+}
+
+/* --- start screen -------------------------------------------------------------------- */
+
+.st {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+  padding: var(--space-lg) var(--space-lg) var(--space-xl);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  background: var(--surface-raised);
+}
+
+.st-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding-top: var(--space-lg);
+}
+
+.st-hero .empty {
+  padding: 0;
+}
+
+.st-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-s);
+}
+
+.st-section h2 {
+  margin: 0 0 var(--space-s);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.st-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--player-tile), 1fr));
+  gap: var(--space-md);
+}
+
+.st-tile {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  max-width: var(--panel-lg);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-s);
-  line-height: var(--line-height-s);
-  color: var(--text-muted);
-  user-select: text;
+  min-width: 0;
+  padding: var(--space-s);
+  border-radius: var(--rounded);
+  text-align: left;
 }
 
-.demo-stack {
+.st-tile:hover {
+  background: var(--surface-hover);
+}
+
+.st-thumb {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-xxs) 0;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--primary);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+}
+
+.st-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.st-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--space-xs);
+  background: var(--surface-pressed);
+}
+
+.st-progress::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--p, 0%);
+  background: var(--accent);
+}
+
+.st-name,
+.st-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-name {
+  font-weight: var(--font-weight-medium);
+}
+
+.st-sub {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+}
+
+.st-songs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--panel-sm), 1fr));
+  gap: var(--space-xxs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.st-song {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  height: var(--control-lg);
+  padding: 0 var(--space-s);
+  border-radius: var(--secondary);
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.st-song span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-song:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }

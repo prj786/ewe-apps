@@ -141,6 +141,7 @@ pub fn run() {
                         paths,
                         flags: vec![flag.to_string()],
                         cwd: "/".into(),
+                        urls: Vec::new(),
                     };
                     let _ = open_window(&handle, launch);
                 }
@@ -241,6 +242,7 @@ fn new_window(app: AppHandle, paths: Vec<String>, flags: Vec<String>) -> Result<
             paths,
             flags,
             cwd: "/".into(),
+            urls: Vec::new(),
         },
     )
     .map_err(|e| e.to_string())

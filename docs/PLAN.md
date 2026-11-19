@@ -185,7 +185,6 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       other apps were built on WebKitGTK's uri-list drag and Tauri's drag-drop events but could
       not be exercised headless; MTP phones, SMB/SFTP credentials and eject ran only against the
       GIO API, not real devices)
-- [ ] ewe Player
 - [x] ewe Viewer — 2026-11-19, branch `feat/viewer`: every format in the list above opens (PDF via
       pdf.js components with forms/find/outline/presentation/print/password/night, EPUB via
       foliate-js, CBZ/CBR, Markdown/text/code, DOCX, XLSX/ODS/CSV, pictures with EXIF/wallpaper/
@@ -193,9 +192,17 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       `--key=value` flags for every state; screenshots dark + light in the agents' map. Not done:
       annotations are shown but not editable; HEIC depends on the system's glycin loader; print
       and the GTK dialogs could not be exercised headless (owner's real-machine list in the report).
+
+- [x] ewe Player — 2026-11-19 (branch `feat/player`): video player (GStreamer `<video>`, Ewe control
+      bar, subtitles in-file + sidecar SRT/ASS/VTT, audio tracks, speed, 150 % volume, fit/rotate,
+      fullscreen, mini, playlist panel, resume, screenshots, URL/HLS, drag and drop, start screen with
+      recents), music (Browser's page + M3U playlists, queue, now-playing, next-track preload, Rust
+      lofty scan), MPRIS `org.mpris.MediaPlayer2.ewe-player`, idle inhibit, codec errors in words.
+      Open: real-machine check (Hyprland float rule for the mini window, media keys through the dock,
+      VA-API on the owner's GPU), gst-libav lands with ewe 0.44.
 - [x] packaging + CI + release workflow — 2026-11-19 (desktop entries, icons, PKGBUILD, ci.yml, release.yml; the GitHub repo and the first tag are the owner's call)
 - [x] ewe package diet, mime defaults, shell references (+ Settings → Default apps rows)
 - [x] ewe-repo (Reversal dedupe via hardlink, publish ewe-apps, gate blacklists nvidia-utils)
 - [x] ISO trim
-- [ ] idle RAM (Komble, ewe-sync, shell)
+- [x] idle RAM (Komble quits on close, ewe-sync's window only while shown, shell −22…24 MB)
 - [ ] vault

@@ -716,6 +716,67 @@ const ICONS = {
       path: 'M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z',
     },
   ],
+  // ewe Player
+  captions: [
+    { rect: { x: 3, y: 5, width: 18, height: 14, rx: 2 } },
+    { path: 'M7 15h4' },
+    { path: 'M15 15h2' },
+    { path: 'M7 11h2' },
+    { path: 'M13 11h4' },
+  ],
+  gauge: [{ path: 'm12 14 4-4' }, { path: 'M3.34 19a10 10 0 1 1 17.32 0' }],
+  'picture-in-picture-2': [
+    { path: 'M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4' },
+    { rect: { x: 12, y: 13, width: 10, height: 7, rx: 2 } },
+  ],
+  'list-music': [
+    { path: 'M21 15V6' },
+    { path: 'M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 1 0 0 5Z' },
+    { path: 'M12 12H3' },
+    { path: 'M16 6H3' },
+    { path: 'M12 18H3' },
+  ],
+  'list-plus': [
+    { path: 'M11 12H3' },
+    { path: 'M16 6H3' },
+    { path: 'M16 18H3' },
+    { path: 'M18 9v6' },
+    { path: 'M21 12h-6' },
+  ],
+  rewind: [{ path: 'M11 19 2 12l9-7v14z' }, { path: 'M22 19l-9-7 9-7v14z' }],
+  'fast-forward': [{ path: 'M13 19l9-7-9-7v14z' }, { path: 'M2 19l9-7-9-7v14z' }],
+  'chevron-first': [{ path: 'm17 18-6-6 6-6' }, { path: 'M7 6v12' }],
+  'chevron-last': [{ path: 'm7 18 6-6-6-6' }, { path: 'M17 6v12' }],
+  expand: [
+    { path: 'm21 21-6-6m6 6v-4.8m0 4.8h-4.8' },
+    { path: 'M3 16.2V21m0 0h4.8M3 21l6-6' },
+    { path: 'M21 7.8V3m0 0h-4.8M21 3l-6 6' },
+    { path: 'M3 7.8V3m0 0h4.8M3 3l6 6' },
+  ],
+  clock: [{ circle: { cx: 12, cy: 12, r: 10 } }, { path: 'M12 6v6l4 2' }],
+  languages: [
+    { path: 'm5 8 6 6' },
+    { path: 'm4 14 6-6 2-3' },
+    { path: 'M2 5h12' },
+    { path: 'M7 2h1' },
+    { path: 'm22 22-5-10-5 10' },
+    { path: 'M14 18h6' },
+  ],
+  'grip-vertical': [
+    { circle: { cx: 9, cy: 12, r: 1 } },
+    { circle: { cx: 9, cy: 5, r: 1 } },
+    { circle: { cx: 9, cy: 19, r: 1 } },
+    { circle: { cx: 15, cy: 12, r: 1 } },
+    { circle: { cx: 15, cy: 5, r: 1 } },
+    { circle: { cx: 15, cy: 19, r: 1 } },
+  ],
+  radio: [
+    { path: 'M4.9 19.1C1 15.2 1 8.8 4.9 4.9' },
+    { path: 'M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5' },
+    { circle: { cx: 12, cy: 12, r: 2 } },
+    { path: 'M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5' },
+    { path: 'M19.1 4.9C23 8.8 23 15.1 19.1 19' },
+  ],
 } satisfies Record<string, Shape[]>
 
 export type IconName = keyof typeof ICONS

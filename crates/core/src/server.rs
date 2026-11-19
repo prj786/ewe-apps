@@ -200,11 +200,14 @@ async fn raw(
     let etag = etag_for(&meta);
     let mut out = HeaderMap::new();
     out.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    // CORS (a `<video crossorigin="anonymous">` for Web Audio above 100 % and frame
+    // grabs, `fetch()` for text and PDFs) comes from the `cors` layer: the app's own
+    // origins only. The token still gates every byte.
     out.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
-    out.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-cache"),
-    );
+    // no-store, not no-cache: WebKit's network cache keeps aborted partial bodies and,
+    // after a 304 on revalidation, hands them back as the whole file — a <video> then
+    // sits at "buffering 5 %" forever. These are local files; caching gains nothing.
+    out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     if let Ok(v) = HeaderValue::from_str(&content_type(&name)) {
         out.insert(header::CONTENT_TYPE, v);
     }
@@ -533,6 +536,10 @@ mod tests {
         let (head, body) = get(None, &token).await;
         assert!(head.starts_with("HTTP/1.1 200"), "{head}");
         assert!(head.contains("accept-ranges: bytes"));
+        assert!(
+            !head.contains("access-control-allow-origin"),
+            "no Origin, no CORS: {head}"
+        );
         assert!(head.contains("content-length: 1000"));
         assert_eq!(body, data);
 

@@ -12,6 +12,9 @@ pub struct Launch {
     /// `--flag` and `--key=value` tokens, in order, for the app to interpret
     pub flags: Vec<String>,
     pub cwd: String,
+    /// `http(s)://` (and other non-file) URLs, in order, for the apps that stream
+    #[serde(default)]
+    pub urls: Vec<String>,
 }
 
 impl Launch {
@@ -38,6 +41,8 @@ impl Launch {
             }
             if let Some(p) = to_path(a, cwd) {
                 out.paths.push(p.to_string_lossy().into_owned());
+            } else if is_remote_url(a) {
+                out.urls.push(a.to_string());
             }
         }
         out
@@ -47,6 +52,19 @@ impl Launch {
     pub fn wants_version(&self) -> bool {
         self.flags.iter().any(|f| f == "--version")
     }
+}
+
+/// `scheme://…` with a scheme of letters, digits, `+`, `-`, `.` (RFC 3986) that is not `file`.
+fn is_remote_url(arg: &str) -> bool {
+    let Some((scheme, rest)) = arg.split_once("://") else {
+        return false;
+    };
+    !rest.is_empty()
+        && scheme != "file"
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
 fn to_path(arg: &str, cwd: &Path) -> Option<PathBuf> {
@@ -125,6 +143,28 @@ mod tests {
             vec!["/home/me/My Files/a#.png", "/x/y", "/home/me/work/-"]
         );
         assert!(l.flags.is_empty());
+        assert_eq!(l.urls, vec!["https://example.com/v.mp4"]);
+    }
+
+    #[test]
+    fn keeps_remote_urls_for_the_apps_that_stream() {
+        let l = parse(&[
+            "https://example.com/live/index.m3u8",
+            "http://10.0.0.5:8080/cam",
+            "rtsp://cam.local/stream",
+            "nope://",
+            "1://x",
+            "file:///a.mp4",
+        ]);
+        assert_eq!(
+            l.urls,
+            vec![
+                "https://example.com/live/index.m3u8",
+                "http://10.0.0.5:8080/cam",
+                "rtsp://cam.local/stream",
+            ]
+        );
+        assert_eq!(l.paths, vec!["/a.mp4"]);
     }
 
     #[test]

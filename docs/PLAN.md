@@ -180,7 +180,11 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
 ## Status
 
 - [x] scaffold (workspace, @ewe/ui, @ewe/shared, ewe-app-core, three apps that open themed) — 2026-11-19
-- [ ] ewe Files
+- [x] ewe Files — 2026-11-19, branch `feat/files` (everything in the list above; see AGENTS.md
+      "ewe Files" for the map and what is still unproven: drag-out to other apps and drops from
+      other apps were built on WebKitGTK's uri-list drag and Tauri's drag-drop events but could
+      not be exercised headless; MTP phones, SMB/SFTP credentials and eject ran only against the
+      GIO API, not real devices)
 - [ ] ewe Player
 - [x] ewe Viewer — 2026-11-19, branch `feat/viewer`: every format in the list above opens (PDF via
       pdf.js components with forms/find/outline/presentation/print/password/night, EPUB via

@@ -19,3 +19,17 @@ tauri = { workspace = true }
 ewe-app-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+glib = "0.18"
+gio = "0.18"
+gtk = "0.18"
+gdk = "0.18"
+notify = "7"
+walkdir = "2"
+libc = "0.2"
+percent-encoding = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+tempfile = "3"

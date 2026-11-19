@@ -31,6 +31,7 @@ crates/core      ewe-app-core       theme (read + notify watch), server (axum lo
 apps/{files,player,viewer}          index.html, vite.config.ts (ports 5181/5182/5183), src/{index.tsx,
                                     App.tsx, app.css}; src-tauri/{Cargo.toml, tauri.conf.json,
                                     capabilities/default.json, icons/, src/lib.rs (SPEC + run)}
+apps/files                          ewe Files: see the section "ewe Files" below
 packaging/                          *.desktop (MimeType lists, StartupWMClass = binary), icons/*.svg
                                     + hicolor PNGs (scripts/gen-icons.sh)
 PKGBUILD, .github/workflows/{ci,release}.yml, VERSION, LICENSE (GPL-3.0-only)
@@ -155,6 +156,100 @@ Launch flags (all `--key=value`, for the paths on the same command line): `--pag
 (spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures). They are also how `scripts/shot.sh`
 reaches every state headless.
 
+## ewe Files (`apps/files`, binary `ewe-files-app`)
+
+Nemo and Engrampa's replacement, ewe Browser's files page grown into a window with tabs. The Rust
+side is `apps/files/src-tauri/src/`, the page `apps/files/src/`.
+
+```
+src-tauri/src/lib.rs      SPEC, FilesState, every command (list_dir, places, devices_*, connect_server,
+                          mount_reply, watch_dir, make_folder/file/link, rename_entry, templates, op_*,
+                          ops_list, undo, trash_list, archive_*, search_*, stat_path, chmod_path,
+                          folder_size_*, open_terminal, set_wallpaper, run_executable, komble_install,
+                          ewe_sync, tools, clipboard_*, new_window, window_launch, dev_log); the
+                          RunHooks: setup (state, GIO monitor, FileManager1), second_launch (new window,
+                          or `launch` to the focused window with --tab)
+  fs.rs                   list (lstat per row, writable, free), expand (~), unique_path "a (1).tar.gz",
+                          mkdir, create_file (+ template copy), rename, create_link, templates, error words
+  ops.rs                  the queue: one thread per job, Progress (bytes, items, speed, eta, state
+                          queued|running|paused|waiting|done|failed|cancelled) emitted as `op-progress`
+                          (120 ms throttle); pause/resume/cancel through a Condvar; name clashes ask
+                          (`conflict` in the progress) and wait for op_resolve (replace / skip /
+                          keep-both / cancel, once or for all); folder-over-folder replace = merge;
+                          cross-device move = copy + remove; the undo journal (Move, Rename, RemoveTree
+                          for copies, RemoveEmpty for new folders/files, Restore for trashed items),
+                          50 deep, shared with the instant commands
+  trash.rs                freedesktop Trash 1.0: home trash, `$top/.Trash/$uid` (sticky) or
+                          `$top/.Trash-$uid` on other devices with relative Path=, .trashinfo created
+                          O_EXCL (name, name.2, …), list across every trash, restore (unique name when
+                          taken), delete forever, empty
+  archive.rs              bsdtar -tvf / -xf / -a -cf; `lsar -j` + `unar` for RAR and what bsdtar
+                          rejects; `7z a` for .7z; extract here = the archive's single top folder, or
+                          a "<base>" folder, or "<root> (1)" through a temp dir when the folder exists
+  search.rs               walkdir from the folder, filters (name/glob, kind, days, size, hidden),
+                          batches of 40 as `search-results {id, window, items, done}`, 5000 max; a new
+                          search stops the last; `plocate -i -l 500` for "everywhere"
+  places.rs               ewe Browser's computePlaces in Rust (XDG dirs, ewe-files/ewe-drive status,
+                          sync-folders.json, GTK bookmarks, /run/media, GVFS, rclone, File system,
+                          Trash = `trash://`); tool_path ($EWE_BIN, ~/.local/share/ewe/bin, PATH)
+  devices.rs              gio::VolumeMonitor (main thread; thread_local): volumes + volume-less mounts
+                          as Device rows, `devices-changed`, mount/unmount/eject + "Connect to
+                          server…" (mount_enclosing_volume) through a MountOperation whose ask-password
+                          / ask-question become `mount-ask` / `mount-question`, answered by mount_reply;
+                          results as `device-result {id, action, ok, path, error}`
+  dbus.rs                 zbus: org.freedesktop.FileManager1 (ShowFolders / ShowItems /
+                          ShowItemProperties → a new window with --folders / --select / --properties);
+                          the name is simply not claimed while Nemo holds it
+  props.rs                stat (owner/group names, mount, free/total), chmod, folder_size streamed as
+                          `size-progress`
+  clip.rs                 the GTK clipboard: x-special/gnome-copied-files + text/uri-list + text
+  watch.rs                notify per pane key `<window>/<pane>`, 200 ms debounce, `fs-changed`
+  misc.rs                 terminal (ewe-terminal-here, $TERMINAL, kitty…), set_wallpaper (what Nemo's
+                          action ran: `ewe-conf set desktop.wallpapers.default "<json>"` +
+                          hypr/scripts/wallpaper.sh --reapply), run_executable (setsid), komble, ewe-sync
+src/App.tsx               the window: tabs (a Solid store), split view, places, menus (entry,
+                          background, sort, place/device, tab), dialogs, the ops panel, quick look,
+                          keys (Nemo's: F2, Del, Shift+Del, Ctrl+H/L/F/Shift+F, Alt+Up/Left/Right,
+                          Backspace, Ctrl+1/2, Ctrl+=/-/0, Ctrl+Shift+N, F5, F3 split, F9 preview,
+                          Space quick look, Ctrl+Z undo, Ctrl+T/W/N/Tab, Alt+Enter), drag and drop,
+                          argv (`--select=`, `--open-with=`, `--properties`, `--tab`, archives,
+                          folders, files), `--shot=<scene>` for scripts/shot.sh
+src/pane.tsx              one folder view (toolbar, crumbs → path field, filter/type-ahead, grid/list,
+                          windowed rows, status) in three modes: folder, trash (Original location /
+                          Deleted columns), search results (Where column)
+src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict, properties with the
+                          live size and a permissions editor, open with, connect, credentials, rename
+                          many, compress, run, archive, path, confirm); src/ops-panel.tsx;
+                          src/viewer.tsx + textview.tsx + pdfview.tsx (quick look); src/preview.tsx (F9);
+                          src/search.tsx; src/prefs.ts (view/sort/hidden/zoom per app + per folder,
+                          localStorage); src/api.ts (invoke + events)
+```
+
+- Thumbnails come from the core's `/thumb` (images, video, audio covers); PDFs are drawn by pdf.js
+  in the page (`pdfThumb`, cached per url). The pdf.js worker module is imported into the main
+  bundle: WebKitGTK refuses a module worker from `tauri://` ("Load failed") and pdf.js falls back
+  to `globalThis.pdfjsWorker` when it is already there.
+- Drag and drop: a drag sets `text/uri-list` (what other GTK apps take) plus
+  `application/x-ewe-files`. Tauri's drag-drop handler returns true for any uri-list drop, which
+  swallows the DOM `drop`, so drops are handled from `onDragDropEvent` by hit-testing
+  `[data-drop]` under the pointer (DOM `dragover` still highlights, DOM `drop` is the fallback,
+  deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
+- Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
+  and AppImages through the Run dialog (Komble install offered).
+- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview`
+  puts a fresh window into that state (used for the screenshots); `--shot-width=900` narrows the
+  app root to check a small window inside cage's fixed 1280×720 output.
+- Narrow panes (split view, the preview pane): the pane is a CSS container; the list drops Type
+  (< 760px), then Modified (< 560px), then Size (< 400px) and the name ellipsizes, never
+  vanishes. The toolbar condenses by pane width (`tier`: wide ≥ 860, medium, narrow < 560):
+  the filter becomes a button that expands in place of the crumbs, hidden/sort/view move into a
+  ⋯ menu, and below 560 the crumbs collapse to "… › folder" (the … opens the parents) and New
+  folder joins the menu. The Operations panel is a popover under its toolbar button (closes on
+  a click outside), not a third column; a pane never goes under 300px. `dev_log` prints the webview's
+  uncaught errors and unhandled rejections to stderr (`<out>.png.log` under shot.sh).
+- Measured 2026-11-19 (release, headless cage): 3 pictures in a grid 236 MB PSS; a 3200-entry
+  folder 238 MB PSS in the grid and 229 MB in the list (735 MB before the rows were windowed).
+
 ## Verify (do this before reporting)
 
 1. `typecheck`, `lint`, `format:check`, `test`, `cargo test --workspace`, `cargo clippy …`.
@@ -223,3 +318,12 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
 - `scripts/shot.sh` uses the real `$HOME` unless you export another one: the apps then write
   the owner's `recently-used.xbel` and `~/.local/share/<app>/`. Run it with
   `HOME=<tmp> scripts/shot.sh …` for fixtures.
+
+- notify's inotify mask includes `OPEN`: a folder watch fires on our own `read_dir`, and a
+  reload-on-change loop follows. `watch.rs` drops `EventKind::Access(_)`.
+- `<For each={tabs()}>` with a signal of fresh objects rebuilt every pane on a title change
+  (which reloaded, which set the title…). Tabs are a Solid store; only the changed field moves.
+- The media server sends CORS headers (`*`, Range allowed, Content-Range exposed, OPTIONS 204):
+  the page's origin is `tauri://localhost`, so `fetch()` and pdf.js need them; `<img>` never did.
+- `run_with(RunHooks)` / `open_window` in the core are additive; `run()` is unchanged. A second
+  window needs its label in the capability's `windows` (`win-*`).

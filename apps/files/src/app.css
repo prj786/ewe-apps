@@ -1,27 +1,2 @@
-/* app-specific rules; tokens only (see @ewe/ui styles/tokens.css for the names) */
-
-.demo-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
-  color: var(--text-secondary);
-}
-
-.demo-paths {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  max-width: var(--panel-lg);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-s);
-  line-height: var(--line-height-s);
-  color: var(--text-muted);
-  user-select: text;
-}
-
-.demo-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-xxs) 0;
-}
+/* ewe Files: the folder views, places, dialogs. Tokens only (see @ewe/ui tokens.css). */
+@import './files.css';

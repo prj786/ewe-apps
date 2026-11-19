@@ -31,7 +31,9 @@ pub mod theme;
 pub mod thumbs;
 pub mod xdg;
 
-pub use app::{AppSpec, run, run_with};
+pub use app::{
+    AppSpec, ConfigureHook, RunHooks, SecondLaunchHook, SetupHook, open_window, run, run_with,
+};
 pub use commands::{
     add_recent, app_version, apps_for, default_app, launch_args, launch_with, media_server,
     mime_of, set_default_app, theme_tokens,

@@ -38,6 +38,11 @@ pub fn run() {
             commands::comic_page,
             commands::recent_documents,
         ],
-        |builder| builder.plugin(tauri_plugin_dialog::init()),
+        ewe_app_core::RunHooks {
+            configure: Some(Box::new(|builder| {
+                builder.plugin(tauri_plugin_dialog::init())
+            })),
+            ..Default::default()
+        },
     );
 }

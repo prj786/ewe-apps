@@ -690,6 +690,32 @@ const ICONS = {
     { path: 'M7 21H5a2 2 0 0 1-2-2v-2' },
     { rect: { x: 7, y: 8, width: 10, height: 8, rx: 1 } },
   ],
+  // ewe Files
+  smartphone: [{ rect: { x: 5, y: 2, width: 14, height: 20, rx: 2 } }, { path: 'M12 18h.01' }],
+  eject: [{ path: 'm18 9-6-6-6 6' }, { path: 'M12 3v14' }, { path: 'M5 21h14' }],
+  plug: [
+    { path: 'M12 22v-5' },
+    { path: 'M9 8V2' },
+    { path: 'M15 8V2' },
+    { path: 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z' },
+  ],
+  'file-plus': [
+    { path: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' },
+    { path: 'M14 2v4a2 2 0 0 0 2 2h4' },
+    { path: 'M9 15h6' },
+    { path: 'M12 18v-6' },
+  ],
+  funnel: [
+    {
+      path: 'M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z',
+    },
+  ],
+  'square-pen': [
+    { path: 'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7' },
+    {
+      path: 'M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z',
+    },
+  ],
 } satisfies Record<string, Shape[]>
 
 export type IconName = keyof typeof ICONS

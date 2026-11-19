@@ -200,3 +200,26 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
   are listed explicitly).
 - pnpm: `pnpm-workspace.yaml` `allowBuilds` whitelists esbuild and the Tauri CLI; a new
   dependency with a postinstall script needs adding there.
+- **`fetch()` from the page needs CORS**: the webview is `tauri://localhost`, the media server
+  `http://127.0.0.1`. `<img>`/`<video>` never cared, `fetch()` (text, PDFs, books, sheets)
+  failed with a bare "Load failed" until `server.rs` reflected the app origins and answered the
+  `Range` preflight. Vite dev origins (`http://localhost:518x`) are allowed too.
+- **pdf.js viewer components read `globalThis.pdfjsLib` at import time** — import
+  `pdfjs-dist` first, then `pdfjs-dist/web/pdf_viewer.mjs` (`lib/pdfjs.ts` does; in parallel
+  it dies with "Cannot destructure property 'AbortException'"). The viewer `container` must be
+  `position: absolute` (pdf.js throws otherwise). `pdf_viewer.css` defines `.dialog` and
+  `.page`, the same names as the kit: it is imported before `app.css` and `.pdfViewer .page`
+  gets `display: block` back.
+- **Never replace a tab's object to change its label**: `<For>` keys by identity, the view
+  remounts, and a view that reports its title (PDF metadata, a book's title) remounts forever
+  (RAM climbs, pdf.js logs "Transport destroyed"). Titles live in a separate signal map.
+- `foliate-view`'s `renderer` exists only after `open()`; theme changes before that must not
+  touch it. Keys typed inside the book iframe never reach the window: the `load` event's
+  `doc` gets a keydown relay.
+- Tauri IPC returns raw bytes with `tauri::ipc::Response::new(bytes)` (comic pages) and takes
+  them with `tauri::ipc::Request` + `InvokeBody::Raw` (save_bytes, path in a header).
+- The agents' scratchpad is shared between the parallel app agents: write into a per-app
+  subfolder (`scratchpad/viewer/…`) or the other agent's screenshots get overwritten.
+- `scripts/shot.sh` uses the real `$HOME` unless you export another one: the apps then write
+  the owner's `recently-used.xbel` and `~/.local/share/<app>/`. Run it with
+  `HOME=<tmp> scripts/shot.sh …` for fixtures.

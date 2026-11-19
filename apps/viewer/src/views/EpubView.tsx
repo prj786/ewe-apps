@@ -308,7 +308,7 @@ export function EpubView(props: ViewProps): JSX.Element {
     if (loc === null) return ''
     const parts: string[] = []
     if (loc.location !== undefined && loc.location.total > 0)
-      parts.push(`${loc.location.current} of ${loc.location.total}`)
+      parts.push(`${loc.location.current + 1} of ${loc.location.total}`)
     if (loc.fraction !== undefined) parts.push(`${Math.round(loc.fraction * 100)}%`)
     if (loc.time !== undefined && loc.time.total > 0)
       parts.push(`${Math.max(1, Math.round(loc.time.total))} min left`)

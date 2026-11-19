@@ -376,8 +376,9 @@
   margin: var(--space-md) auto;
 }
 
-/* pdf.js' page element shares the kit's .page class name: undo the kit's flex page */
-.pdf-container .pdfViewer .page {
+/* pdf.js' page element shares the kit's .page class name: undo the kit's flex page
+   (direct children only — pages inside a .spread stay inline-block, as pdf_viewer.css says) */
+.pdf-container .pdfViewer > .page {
   display: block;
   flex: none;
   min-width: 0;
@@ -557,7 +558,6 @@
   user-select: text;
   scrollbar-width: thin;
 }
-
 
 .tv-markdown h1,
 .tv-markdown h2,

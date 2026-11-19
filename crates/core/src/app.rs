@@ -28,6 +28,18 @@ pub fn run<F>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: F)
 where
     F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
 {
+    run_with(spec, context, handler, |builder| builder)
+}
+
+/// [`run`] with a hook on the builder for the app's own plugins and managed state
+/// (`.plugin(…)`, `.manage(…)`); it runs before the core's setup is registered, so
+/// put start-up work in a plugin's `setup`, not in `Builder::setup` (which would
+/// replace the core's).
+pub fn run_with<F, C>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: F, configure: C)
+where
+    F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+    C: FnOnce(tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry>,
+{
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let launch = Launch::parse(std::env::args().skip(1), &cwd);
     if launch.wants_version() {
@@ -48,8 +60,8 @@ where
     let title = spec.name.to_string();
     let (w, h, mw, mh) = (spec.width, spec.height, spec.min_width, spec.min_height);
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let launch = Launch::parse(argv.into_iter().skip(1), std::path::Path::new(&cwd));
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.unminimize();
@@ -57,7 +69,8 @@ where
                 let _ = win.set_focus();
             }
             let _ = app.emit("launch", launch);
-        }))
+        }));
+    configure(builder)
         .manage(identity)
         .manage(launch)
         .setup(move |app| {

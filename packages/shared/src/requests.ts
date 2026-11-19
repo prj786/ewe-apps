@@ -9,6 +9,8 @@ export interface Launch {
   /** raw `--flags`, in order, for the app to interpret */
   flags: string[]
   cwd: string
+  /** `http(s)://` and other non-file URLs, in order, for the apps that stream */
+  urls?: string[]
 }
 
 /** One application from GIO that can open a content type. */

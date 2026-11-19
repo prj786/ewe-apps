@@ -200,6 +200,17 @@ async fn raw(
     let etag = etag_for(&meta);
     let mut out = HeaderMap::new();
     out.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    // The webview's origin (tauri://localhost) is not this server's: `<video
+    // crossorigin="anonymous">` needs these for Web Audio (volume above 100 %) and
+    // canvas frame grabs to see the pixels/samples. The token still gates access.
+    out.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    out.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("Accept-Ranges, Content-Range, Content-Length, ETag"),
+    );
     out.insert(header::ETAG, HeaderValue::from_str(&etag).unwrap());
     out.insert(
         header::CACHE_CONTROL,
@@ -478,6 +489,7 @@ mod tests {
         let (head, body) = get(None, &token).await;
         assert!(head.starts_with("HTTP/1.1 200"), "{head}");
         assert!(head.contains("accept-ranges: bytes"));
+        assert!(head.contains("access-control-allow-origin: *"), "{head}");
         assert!(head.contains("content-length: 1000"));
         assert_eq!(body, data);
 

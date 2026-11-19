@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/core",
+  "apps/files/src-tauri",
+  "apps/player/src-tauri",
+  "apps/viewer/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0-beta"
+edition = "2024"
+license = "GPL-3.0-only"
+repository = "https://github.com/prj786/ewe-apps"
+rust-version = "1.90"
+
+[workspace.dependencies]
+ewe-app-core = { path = "crates/core" }
+# `tauri build` refuses an npm @tauri-apps/api whose major.minor differs from the
+# tauri crate: the apps' package.json pins @tauri-apps/api to the minor Cargo.lock
+# resolves here (2.12 at the time of writing). Bump both together.
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+panic = "abort"

@@ -1,0 +1,38 @@
+[package]
+name = "ewe-app-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared Rust core of the ewe apps: theme follower, loopback media server, thumbnails, recent files, mime + apps"
+
+[lib]
+name = "ewe_app_core"
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# the GLib Tauri links (gtk 0.18): the Wayland app_id (set_prgname) and GIO for
+# content types, default apps and launching
+glib = "0.18"
+gio = "0.18"
+notify = "7"
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "net"] }
+tokio-util = { version = "0.7", features = ["io"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "query", "tokio"] }
+mime_guess = "2"
+md-5 = "0.10"
+hex = "0.4"
+getrandom = "0.3"
+percent-encoding = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff", "ico", "qoi"] }
+png = "0.17"
+lofty = "0.22"
+roxmltree = "0.21"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+tempfile = "3"

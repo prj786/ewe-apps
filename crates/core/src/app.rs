@@ -1,6 +1,8 @@
 //! The Tauri builder the three apps share.
 
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use std::sync::Arc;
+
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::commands::AppIdentity;
 use crate::launch::Launch;
@@ -19,12 +21,37 @@ pub struct AppSpec {
     pub min_height: f64,
 }
 
+/// A [`RunHooks::setup`] callback.
+pub type SetupHook = Box<dyn FnOnce(&AppHandle) -> Result<(), Box<dyn std::error::Error>> + Send>;
+/// A [`RunHooks::second_launch`] callback.
+pub type SecondLaunchHook = Arc<dyn Fn(&AppHandle, Launch) + Send + Sync>;
+
+/// What an app may add to the shared start-up (see [`run_with`]). Every field is
+/// optional; [`run`] uses the defaults.
+#[derive(Default)]
+pub struct RunHooks {
+    /// Called on the main thread once the media server, the theme watcher and the
+    /// `main` window exist (register app state, D-Bus services, GIO monitors here).
+    pub setup: Option<SetupHook>,
+    /// Replaces the default answer to a second launch (focus `main`, emit `launch`):
+    /// ewe Files opens a new window or tab instead.
+    pub second_launch: Option<SecondLaunchHook>,
+}
+
 /// Run the app. Handles `--version` (JSON, exit 0), sets the app_id before GTK
 /// starts, forwards a second launch's argv as the `launch` event, starts the media
 /// server and the theme watcher, opens the one window and exits when it closes.
 ///
 /// `handler` is `ewe_app_core::handler![…]` (the core's commands plus the app's own).
 pub fn run<F>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: F)
+where
+    F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
+{
+    run_with(spec, context, handler, RunHooks::default());
+}
+
+/// [`run`] with app hooks (see [`RunHooks`]).
+pub fn run_with<F>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: F, hooks: RunHooks)
 where
     F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
 {
@@ -45,21 +72,28 @@ where
         name: spec.name,
         version: spec.version,
     };
-    let title = spec.name.to_string();
-    let (w, h, mw, mh) = (spec.width, spec.height, spec.min_width, spec.min_height);
+    let window_spec = spec.clone();
+    let second_launch = hooks.second_launch;
+    let setup = hooks.setup;
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        .plugin(tauri_plugin_single_instance::init(move |app, argv, cwd| {
             let launch = Launch::parse(argv.into_iter().skip(1), std::path::Path::new(&cwd));
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.unminimize();
-                let _ = win.show();
-                let _ = win.set_focus();
+            match &second_launch {
+                Some(hook) => hook(app, launch),
+                None => {
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.unminimize();
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
+                    let _ = app.emit("launch", launch);
+                }
             }
-            let _ = app.emit("launch", launch);
         }))
         .manage(identity)
         .manage(launch)
+        .manage(spec)
         .setup(move |app| {
             let thumbs = crate::thumbs::Thumbs::new(crate::thumbs::Thumbs::default_root());
             let server = crate::server::start(thumbs)?;
@@ -82,17 +116,26 @@ where
                 app.manage(watch);
             }
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title(&title)
-                .inner_size(w, h)
-                .min_inner_size(mw, mh)
-                .decorations(false)
-                .build()?;
+            open_window(app.handle(), &window_spec, "main")?;
+            if let Some(setup) = setup {
+                setup(app.handle())?;
+            }
             Ok(())
         })
         .invoke_handler(handler)
         .run(context)
         .expect("error while running the app");
+}
+
+/// Open another window of the app (`index.html`, undecorated, the spec's sizes).
+/// The capability file must list the label (`main`, or a pattern such as `win-*`).
+pub fn open_window(app: &AppHandle, spec: &AppSpec, label: &str) -> tauri::Result<WebviewWindow> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+        .title(spec.name)
+        .inner_size(spec.width, spec.height)
+        .min_inner_size(spec.min_width, spec.min_height)
+        .decorations(false)
+        .build()
 }
 
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {

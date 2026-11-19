@@ -108,7 +108,7 @@ fn track_id(id: &str) -> TrackId {
         "/org/ewe/player/track/{}",
         if safe.is_empty() { "none" } else { &safe }
     );
-    TrackId::try_from(path).unwrap_or_else(|_| TrackId::NO_TRACK)
+    TrackId::try_from(path).unwrap_or(TrackId::NO_TRACK)
 }
 
 fn metadata_of(meta: &TrackMeta) -> Metadata {

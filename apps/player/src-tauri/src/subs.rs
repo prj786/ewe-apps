@@ -176,7 +176,7 @@ pub fn srt_to_vtt(text: &str) -> String {
             continue;
         };
         // "00:00:01,000 --> 00:00:04,000 X1:40 X2:600" — positions after the end are dropped
-        let end_text = b.trim().split_whitespace().next().unwrap_or("");
+        let end_text = b.split_whitespace().next().unwrap_or("");
         let (Some(start), Some(end)) = (parse_srt_time(a), parse_srt_time(end_text)) else {
             continue;
         };

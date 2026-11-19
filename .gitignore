@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+*.log
+.DS_Store
+.vite/
+coverage/
+*.tsbuildinfo
+docs/screenshots/
+apps/*/src-tauri/gen/
+*.pkg.tar.zst

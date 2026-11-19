@@ -39,8 +39,11 @@ impl Watches {
         let pending2 = pending.clone();
         let emit_path = path_owned.clone();
         let handler = move |res: notify::Result<notify::Event>| {
-            if res.is_err() {
-                return;
+            // notify's inotify mask includes OPEN: our own read_dir would be a "change"
+            // (and a reload loop); only real changes count
+            match res {
+                Ok(e) if !matches!(e.kind, notify::EventKind::Access(_)) => {}
+                _ => return,
             }
             let mut p = pending2.lock().unwrap();
             let first = p.is_none();

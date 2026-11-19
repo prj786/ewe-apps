@@ -206,6 +206,7 @@ pub fn run() {
             clipboard_set,
             clipboard_get,
             window_closed,
+            dev_log,
         ],
         hooks,
     );
@@ -669,6 +670,12 @@ fn clipboard_set(mode: String, paths: Vec<String>) -> bool {
 #[tauri::command]
 fn clipboard_get() -> Option<clip::Clip> {
     clip::get()
+}
+
+/// The webview's uncaught errors, on stderr (`scripts/shot.sh` keeps a log).
+#[tauri::command]
+fn dev_log(text: String) {
+    eprintln!("ewe-files-app webview: {text}");
 }
 
 #[allow(dead_code)]

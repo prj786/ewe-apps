@@ -15,6 +15,7 @@ import {
 import {
   compareTracks,
   coverUrl,
+  decodeFailureMessage,
   formatDuration,
   groupAlbums,
   groupArtists,
@@ -41,7 +42,7 @@ import {
   type MenuEntry,
 } from '@ewe/ui'
 import { AudioEngine } from '../audio'
-import { coverArtFile, launchWith, type Library, type Transport } from '../bridge'
+import { coverArtFile, launchWith, probeMedia, type Library, type Transport } from '../bridge'
 import { publish } from '../mpris'
 import type { MusicPrefs, MusicView as MainView } from '../store'
 import './music.css'
@@ -72,6 +73,8 @@ export interface MusicViewProps {
   onOpenFiles(): void
   onOpenPlaylist(path: string | null): void
   onSavePlaylist(tracks: Track[]): void
+  /** screenshot hook: music-albums | music-album | music-songs | music-now | music-playing */
+  scene: string | null
 }
 
 function hue(text: string): number {
@@ -135,11 +138,19 @@ export function MusicView(props: MusicViewProps): JSX.Element {
     },
     onDuration: (d) => setDuration(d),
     onEnded: () => next(false),
-    onError: () => {
+    onError: (code) => {
       const t = current()
-      setError(t === undefined ? null : `Cannot play ${t.title}`)
       setPlaying(false)
       publish({ status: 'stopped' }, true)
+      if (t === undefined) return
+      setError(`Cannot play ${t.title}`)
+      void probeMedia(t.path)
+        .catch(() => null)
+        .then((streams) => {
+          const msg = decodeFailureMessage(t.title, streams, code)
+          setError(msg.detail)
+          toast(`${msg.title}. ${msg.detail}`, { kind: 'danger', duration: 8000 })
+        })
     },
   })
 
@@ -280,6 +291,19 @@ export function MusicView(props: MusicViewProps): JSX.Element {
     on(tracks, (list) => {
       if (list.length === 0 || restored) return
       restored = true
+      const scene = props.scene
+      if (scene !== null) {
+        const first = albums()[0]
+        if (scene === 'music-album' && first !== undefined)
+          setView({ kind: 'album', key: first.key })
+        else if (scene === 'music-songs') setView({ kind: 'songs' })
+        else if (scene === 'music-albums') setView({ kind: 'albums' })
+        if (scene === 'music-now' || scene === 'music-playing') {
+          playList(list, list[0])
+          if (scene === 'music-now') setView({ kind: 'now' })
+        }
+        return
+      }
       if (queue().length > 0) return
       const byPath = new Map(list.map((t) => [t.path, t]))
       const q = props.prefs.queue

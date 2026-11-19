@@ -14,6 +14,7 @@ import {
   MAX_VOLUME,
   SPEEDS,
   clampVolume,
+  codecWords,
   decodeFailureMessage,
   formatClock,
   formatSpeed,
@@ -74,6 +75,8 @@ export interface VideoPlayerProps {
   onOpenUrl(): void
   onTransport(transport: Transport | null): void
   onStopped(): void
+  /** screenshot hook: controls | subs | audio-menu | playlist | mini */
+  scene: string | null
 }
 
 interface SubTrack {
@@ -152,6 +155,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   } | null>(null)
   const [osd, setOsd] = createSignal<string | null>(null)
   const [resume, setResume] = createSignal<SavedPosition | null>(null)
+  /** sound plays but there is no picture: the video codec is missing */
+  const [noPicture, setNoPicture] = createSignal<string | null>(null)
+  let pictureTimer: ReturnType<typeof setTimeout> | null = null
   const [menu, setMenu] = createSignal<{
     kind: 'speed' | 'subs' | 'audio' | 'view' | 'more'
     at: { x: number; y: number }
@@ -174,6 +180,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     setVisible(true)
     if (hideTimer !== null) clearTimeout(hideTimer)
     hideTimer = setTimeout(() => {
+      if (props.scene !== null) return
       if (playing() && !overControls() && menu() === null && !scrubbing()) setVisible(false)
     }, HIDE_AFTER)
   }
@@ -440,6 +447,44 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     }
   }
 
+  // --- no picture? ----------------------------------------------------------------------
+  const checkPicture = () => {
+    if (pictureTimer !== null) clearTimeout(pictureTimer)
+    pictureTimer = setTimeout(() => {
+      pictureTimer = null
+      const it = item()
+      if (it === undefined || it.remote || video.paused || video.videoWidth > 0) return
+      void probeMedia(it.path).then((streams) => {
+        if (item()?.path !== it.path || video.videoWidth > 0) return
+        const v = streams.find((s) => s.kind === 'video')
+        if (v === undefined) return
+        const words = codecWords(v.codec)
+        setNoPicture(
+          `No picture: the video is ${words.label}${
+            words.needsLibav ? ', which needs gst-libav' : ' and its decoder refused it'
+          }. Playing the sound only.`,
+        )
+      })
+    }, 1500)
+  }
+
+  // --- screenshot hook ----------------------------------------------------------------
+  const applyScene = (scene: string) => {
+    const at = { x: Math.round(stageSize().w * 0.7), y: Math.round(stageSize().h - 56) }
+    if (scene === 'subs')
+      setTimeout(() => {
+        const srt = subs().find((s) => s.path?.toLowerCase().endsWith('.srt'))
+        if (srt !== undefined) {
+          setActiveSub(srt.id)
+          applySubs()
+        }
+      }, 1200)
+    if (scene === 'audio-menu') setTimeout(() => setMenu({ kind: 'audio', at }), 400)
+    else if (scene === 'subs-menu') setTimeout(() => setMenu({ kind: 'subs', at }), 400)
+    else if (scene === 'playlist') props.onPrefs({ panel: true })
+    else if (scene === 'mini') props.onMini(true)
+  }
+
   // --- keys ---------------------------------------------------------------------------
   const onKey = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement | null
@@ -562,6 +607,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       audio?.removeEventListener('removetrack', onAudio)
       if (hideTimer !== null) clearTimeout(hideTimer)
       if (osdTimer !== null) clearTimeout(osdTimer)
+      if (pictureTimer !== null) clearTimeout(pictureTimer)
       for (const s of subs()) if (s.url !== undefined) URL.revokeObjectURL(s.url)
       void inhibitIdle(false).catch(() => undefined)
       publish({ status: 'stopped' }, true)
@@ -574,6 +620,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       const it = item()
       setError(null)
       setResume(null)
+      setNoPicture(null)
       setTime(0)
       setDuration(0)
       setBuffered([])
@@ -596,7 +643,8 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         void addRecent(it.path).catch(() => undefined)
         void subtitleFiles(it.path).then((files) => {
           if (item()?.path !== it.path) return
-          files.forEach((f, i) => void addSubtitleFile(f, i === 0 && audioTracks().length === 0))
+          // the first matching sidecar shows right away (what mpv does)
+          files.forEach((f, i) => void addSubtitleFile(f, i === 0))
         })
       }
       publish(
@@ -880,6 +928,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             setPlaying(true)
             publish({ status: 'playing', position: video.currentTime }, true)
             poke()
+            checkPicture()
           }}
           onPause={() => {
             setPlaying(false)
@@ -904,6 +953,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             })
             const path = resumeFor
             resumeFor = null
+            if (props.scene !== null) applyScene(props.scene)
             const saved = path === null ? undefined : props.positions[path]
             if (saved !== undefined && saved.position < video.duration - 5) {
               video.currentTime = saved.position
@@ -992,6 +1042,18 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           <button class="vp-bigplay" aria-label="Play" onClick={toggle}>
             <Icon name="play" size={28} />
           </button>
+        </Show>
+
+        <Show when={noPicture()}>
+          {(text) => (
+            <div class="vp-resume vp-notice">
+              <Icon name="circle-alert" size={14} />
+              <span>{text()}</span>
+              <Button small kind="ghost" onClick={() => setNoPicture(null)}>
+                OK
+              </Button>
+            </div>
+          )}
         </Show>
 
         <Show when={resume()}>

@@ -393,6 +393,15 @@
   animation: ewe-slide-up var(--dur-base) var(--ease-out);
 }
 
+.vp-notice {
+  max-width: var(--panel-lg);
+  color: var(--warning);
+}
+
+.vp-notice span {
+  color: var(--text-primary);
+}
+
 .vp-error {
   position: absolute;
   inset: 0;

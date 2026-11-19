@@ -181,7 +181,13 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
 
 - [x] scaffold (workspace, @ewe/ui, @ewe/shared, ewe-app-core, three apps that open themed) — 2026-11-19
 - [ ] ewe Files
-- [ ] ewe Player
+- [x] ewe Player — 2026-11-19 (branch `feat/player`): video player (GStreamer `<video>`, Ewe control
+      bar, subtitles in-file + sidecar SRT/ASS/VTT, audio tracks, speed, 150 % volume, fit/rotate,
+      fullscreen, mini, playlist panel, resume, screenshots, URL/HLS, drag and drop, start screen with
+      recents), music (Browser's page + M3U playlists, queue, now-playing, next-track preload, Rust
+      lofty scan), MPRIS `org.mpris.MediaPlayer2.ewe-player`, idle inhibit, codec errors in words.
+      Open: real-machine check (Hyprland float rule for the mini window, media keys through the dock,
+      VA-API on the owner's GPU), gst-libav lands with ewe 0.44.
 - [ ] ewe Viewer
 - [x] packaging + CI + release workflow — 2026-11-19 (desktop entries, icons, PKGBUILD, ci.yml, release.yml; the GitHub repo and the first tag are the owner's call)
 - [x] ewe package diet, mime defaults, shell references (+ Settings → Default apps rows)

@@ -87,6 +87,8 @@ export function App(): JSX.Element {
   const [menuAt, setMenuAt] = createSignal<{ x: number; y: number } | null>(null)
   const [dropping, setDropping] = createSignal(false)
   const [version, setVersion] = createSignal('')
+  // `--scene=<name>`: a screenshot hook (scripts/shot.sh) that opens a given state
+  const [scene, setScene] = createSignal<string | null>(null)
   let transport: Transport | null = null
   let normalSize: LogicalSize | null = null
   const win = getCurrentWindow()
@@ -349,13 +351,30 @@ export function App(): JSX.Element {
     void getAppVersion().then((v) => setVersion(v.version))
     void getMediaServer().then(setServer)
     void playerPlaces().then(setPlaces)
-    void musicLibrary().then(setLibrary)
+    // the listener first, then the first call (which starts the scan)
+    let offMusic: (() => void) | null = null
+    void onMusicChanged(setLibrary)
+      .then((off) => {
+        offMusic = off
+        return musicLibrary()
+      })
+      .then((lib) => {
+        setLibrary(lib)
+        if (lib.scanning)
+          setTimeout(() => {
+            if (library()?.scanning ?? false) void musicLibrary().then(setLibrary)
+          }, 4000)
+      })
     void getLaunch().then((l) => {
+      const wanted = l.flags.find((f) => f.startsWith('--scene='))?.slice('--scene='.length)
+      if (wanted !== undefined) {
+        setScene(wanted)
+        if (wanted.startsWith('music')) setMode('music')
+      }
       if (l.paths.length > 0 || (l.urls?.length ?? 0) > 0) handleLaunch(l)
     })
     const offs = [
       onLaunch(handleLaunch),
-      onMusicChanged(setLibrary),
       onMprisCommand((c) => {
         const t = transport
         switch (c.action) {
@@ -438,6 +457,7 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     onCleanup(() => {
       offs.forEach((off) => off())
+      offMusic?.()
       offDrop?.()
       window.removeEventListener('keydown', onKey)
     })
@@ -576,6 +596,7 @@ export function App(): JSX.Element {
                     transport = t
                   }}
                   onStopped={() => setAutoplay(false)}
+                  scene={scene()}
                 />
               </Match>
               <Match when={view() === 'music'}>
@@ -592,6 +613,7 @@ export function App(): JSX.Element {
                   onOpenFiles={() => void openFiles()}
                   onOpenPlaylist={(p) => void openPlaylist(p)}
                   onSavePlaylist={(tracks) => void savePlaylist(tracks)}
+                  scene={scene()}
                 />
               </Match>
             </Switch>

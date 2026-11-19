@@ -128,8 +128,11 @@ function subscribe<T>(name: string, handler: (payload: T) => void): () => void {
   }
 }
 
-export const onMusicChanged = (handler: (library: Library) => void): (() => void) =>
-  subscribe<Library>('music-changed', handler)
+/** Resolves once the listener is registered — call `musicLibrary()` after, or a fast scan's
+ *  `music-changed` can fire before the webview listens. */
+export const onMusicChanged = (handler: (library: Library) => void): Promise<() => void> =>
+  listen('music-changed', (e: { payload: Library }) => handler(e.payload))
+export const webviewTune = (): Promise<void> => invoke<null>('webview_tune').then(() => undefined)
 export const onMprisCommand = (handler: (command: MprisCommand) => void): (() => void) =>
   subscribe<MprisCommand>('mpris-command', handler)
 

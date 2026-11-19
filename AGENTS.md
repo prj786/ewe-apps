@@ -97,6 +97,47 @@ recently-used.xbel`, bumps or adds the entry with this app in `bookmark:applicat
   headers `.app-header`, `.toolbar` rows with `.toolbar-spacer`. No `text-transform: uppercase`.
   Icons: add Lucide paths to `Icon.tsx` (`ICONS`), stroke 2, 24-box.
 
+## ewe Player (`apps/player`)
+
+```
+src/App.tsx            mode (Video | Music, a Segmented in the header), opening paths/URLs/M3Us
+                       (listMedia expands folders; all-audio → the music view, else the video queue
+                       + folder siblings), dialogs (plugin-dialog), fullscreen + mini window ops,
+                       MPRIS command routing to the active view's Transport, drag and drop, Ctrl+O/L
+src/video/VideoPlayer.tsx  <video crossorigin> + the auto-hiding control bar (seek with buffered
+                       ranges + hover time, ±10 s, frame step , . , speed [ ], volume 0–150 % via a
+                       Web Audio gain above 100 %, subtitles: in-file textTracks + sidecars by name
+                       as blob <track>s from `subtitle_vtt`, audioTracks picker, fit/fill/zoom/rotate,
+                       F fullscreen, mini, S screenshot via ffmpeg, resume, codec errors in words)
+src/video/Playlist.tsx queue (HTML5 drag to reorder, Delete) + "In this folder"
+src/music/MusicView.tsx  ewe Browser's music page + Playlists (.m3u under the music root, open/save),
+                       Queue view, Now playing page; AudioEngine (audio.ts) preloads the next track
+src/start/StartScreen.tsx  recents (recent_media → our own recently-used.xbel entries) with resume marks
+src/bridge.ts          the player's invoke wrappers + Transport; src/mpris.ts coalesces state pushes;
+src/store.ts           localStorage `ewe.player.state` (mode, video prefs, music prefs, positions)
+src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+size), subs.rs
+                       (sidecars, SRT/ASS/SSA → VTT), playlist.rs (M3U), folder.rs, mpris.rs
+                       (mpris-server, bus name org.mpris.MediaPlayer2.ewe-player), inhibit.rs
+                       (org.freedesktop.ScreenSaver, hypridle honours it), probe.rs (ffprobe),
+                       shots.rs (ffmpeg frame → ~/Pictures/Screenshots), recents.rs, userdirs.rs
+```
+
+- **argv**: files, folders, `.m3u`, `http(s)://` URLs (`Launch.urls`); `--enqueue` appends to the
+  running instance instead of replacing; `--scene=<name>` is the screenshot hook (`controls`,
+  `subs-menu`, `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
+  `music-now`, `music-playing`). `$EWE_MUSIC_DIR` overrides the music root.
+- **MPRIS**: the webview is the source of truth; it pushes `mpris_update` (status, position every
+  second, metadata with a `file://` art URL from `cover_art_file`, volume, loop, shuffle, rate) and
+  the Rust `Player` answers the bus; method calls come back as the `mpris-command` event. Test
+  against a private bus: `scripts/shot.sh` runs under `dbus-run-session`, so `playerctl -p
+ewe-player status/position/metadata` inside it never touches the owner's session.
+- **Idle**: `inhibit_idle(true)` while a video plays (D-Bus `org.freedesktop.ScreenSaver.Inhibit`,
+  which hypridle serves because `ignore_dbus_inhibit = false`); released on pause and on exit.
+- **Codecs**: WebKitGTK decodes through GStreamer; without `gst-libav` the box plays H.264 (openh264
+  / va), HEVC (libde265 / va), VP8/9, AV1, AAC, MP3, Opus, Vorbis, FLAC, WAV; MPEG-4 Part 2, WMV/WMA,
+  ALAC, AC-3, DTS need gst-libav (ewe 0.44 ships it). The error page names the codecs (ffprobe) and
+  says so.
+
 ## Verify (do this before reporting)
 
 1. `typecheck`, `lint`, `format:check`, `test`, `cargo test --workspace`, `cargo clippy …`.

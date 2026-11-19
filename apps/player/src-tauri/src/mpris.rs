@@ -89,12 +89,7 @@ impl Player {
     }
 
     fn position_now(&self) -> f64 {
-        let i = self.inner.lock().unwrap();
-        if i.status == PlaybackStatus::Playing {
-            i.position + i.position_at.elapsed().as_secs_f64() * i.rate
-        } else {
-            i.position
-        }
+        imp_position(&self.inner.lock().unwrap())
     }
 }
 
@@ -475,9 +470,15 @@ async fn apply(server: &Server<Player>, u: MprisUpdate) {
     }
 }
 
+/// The webview reports the position about once a second while playing; between reports
+/// the clock runs on, but never further than [`MAX_EXTRAPOLATION`], so a stalled element
+/// (no `timeupdate`) does not look like it is still advancing.
+const MAX_EXTRAPOLATION: f64 = 1.5;
+
 fn imp_position(i: &Inner) -> f64 {
     if i.status == PlaybackStatus::Playing {
-        i.position + i.position_at.elapsed().as_secs_f64() * i.rate
+        let elapsed = i.position_at.elapsed().as_secs_f64().min(MAX_EXTRAPOLATION);
+        i.position + elapsed * i.rate
     } else {
         i.position
     }

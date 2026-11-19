@@ -1,0 +1,27 @@
+{
+  "name": "ewe-viewer",
+  "private": true,
+  "version": "0.1.0-beta",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "The ewe document and image viewer",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ewe/shared": "workspace:*",
+    "@ewe/ui": "workspace:*",
+    "@tauri-apps/api": "~2.12.5",
+    "solid-js": "^1.9.17"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "~2.12.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}

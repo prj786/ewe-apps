@@ -22,6 +22,14 @@ export function rawUrl(server: MediaServer, path: string): string {
   return `${origin(server)}/raw/${encodeURIComponent(baseName(path))}?${params.toString()}`
 }
 
+/**
+ * The smallest thumbnail the core serves that covers `px` device pixels (a 126 px tile at
+ * scale 1.8 wants 227 → 256; past 512 the 512 one is scaled up).
+ */
+export function thumbSizeFor(px: number): ThumbSize {
+  return px <= 128 ? 128 : px <= 256 ? 256 : 512
+}
+
 export function thumbUrl(server: MediaServer, path: string, size: ThumbSize = 256): string {
   const params = new URLSearchParams({ path, size: String(size), t: server.token })
   return `${origin(server)}/thumb?${params.toString()}`

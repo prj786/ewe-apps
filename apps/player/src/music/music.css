@@ -550,3 +550,62 @@
   color: var(--danger);
   font-size: var(--font-size-xs);
 }
+
+/* --- narrow windows (MusicView navMode): an icon rail < 720, a segmented control < 520 -- */
+
+.mu.rail {
+  grid-template-columns: var(--player-rail-width) minmax(0, 1fr);
+}
+
+.mu.top {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mu.rail .mu-nav {
+  align-items: center;
+  padding: var(--space-s) var(--space-xs);
+}
+
+.mu.rail .mu-nav-item {
+  justify-content: center;
+  width: var(--control-xl);
+  padding: 0;
+}
+
+.mu.rail .mu-nav-item > span {
+  display: none;
+}
+
+/* the labels become tooltips, to the right of the rail */
+.mu.rail .mu-nav-item[data-tooltip]::after {
+  z-index: 2;
+  top: 50%;
+  bottom: auto;
+  left: calc(100% + var(--space-s));
+  translate: 0 -50%;
+}
+
+.mu-tabs {
+  display: flex;
+  flex: none;
+  padding: var(--space-s) var(--space-md) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mu-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.mu-tabs .seg {
+  flex: none;
+}
+
+/* the bar under a segmented nav: the transport keeps its size, the volume is its button */
+.mu.top .mu-bar {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.mu.top .mu-volume input[type='range'] {
+  display: none;
+}

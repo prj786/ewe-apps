@@ -3,6 +3,7 @@
 
 :root {
   --player-nav-width: calc(var(--panel-sm) * 0.6);
+  --player-rail-width: calc(var(--control-xl) + var(--space-md));
   --player-panel-width: calc(var(--panel-sm) - var(--space-xl));
   --player-bar-height: calc(var(--control-2xl) + var(--space-lg));
   --player-tile: calc(var(--control-2xl) * 3.5);
@@ -10,6 +11,12 @@
 
 .app-header .seg {
   margin-left: var(--space-s);
+}
+
+/* the header's buttons sit at the window's right edge, as in Files and Viewer */
+.app-header .toolbar--header {
+  flex: 1;
+  min-width: 0;
 }
 
 .app.fullscreen .app-header,

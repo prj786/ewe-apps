@@ -73,6 +73,8 @@ export interface PlacesProps {
   onMenu(target: { place?: FsPlace; device?: Device }, at: Point): void
   onConnect(): void
   dropHandlers(dir: () => string): Record<string, unknown>
+  /** compact windows: the panel floats over the pane (closes on a place or a click outside) */
+  drawer?: boolean | undefined
 }
 
 export function Places(props: PlacesProps): JSX.Element {
@@ -90,7 +92,7 @@ export function Places(props: PlacesProps): JSX.Element {
   const extraDevices = () =>
     props.devices.filter((d) => d.path === null || !props.places.some((p) => p.path === d.path))
   return (
-    <aside class="fm-places" aria-label="Places">
+    <aside class="fm-places" classList={{ drawer: props.drawer ?? false }} aria-label="Places">
       <For each={GROUPS}>
         {(group) => (
           <Show

@@ -209,11 +209,16 @@ fn folder_has_cover(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Whole milliseconds: serde_json does not round-trip every fractional f64
+/// exactly (no `float_roundtrip`), so a sub-millisecond mtime read back from
+/// music-index.json differed in the last digit — `old.mtime == mtime` failed
+/// and every file was re-read on every launch (and the index test flaked).
+/// Integers below 2^53 survive the trip exactly.
 fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs_f64() * 1000.0)
+        .map(|d| d.as_millis() as f64)
         .unwrap_or(0.0)
 }
 

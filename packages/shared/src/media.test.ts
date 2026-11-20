@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coverUrl, rawUrl, thumbUrl } from './media'
+import { coverUrl, rawUrl, thumbSizeFor, thumbUrl } from './media'
 
 const server = { port: 43210, token: 'abc123' }
 
@@ -24,5 +24,15 @@ describe('media urls', () => {
     const cover = new URL(coverUrl(server, '/x/y.flac'))
     expect(cover.pathname).toBe('/cover')
     expect(cover.searchParams.get('path')).toBe('/x/y.flac')
+  })
+})
+
+describe('thumbSizeFor', () => {
+  it('picks the smallest served size that covers the device pixels', () => {
+    expect(thumbSizeFor(48)).toBe(128)
+    expect(thumbSizeFor(128)).toBe(128)
+    expect(thumbSizeFor(Math.ceil(126 * 1.8))).toBe(256)
+    expect(thumbSizeFor(257)).toBe(512)
+    expect(thumbSizeFor(2000)).toBe(512)
   })
 })

@@ -12,7 +12,7 @@
   display: none;
 }
 
-@media (min-width: 900px) {
+@container app (width >= 900px) {
   .app-name-text {
     display: inline;
   }
@@ -442,6 +442,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "Save a copy" as an icon (narrow toolbar): still the accent, it is the thing to do */
+.pdf-save-icon {
+  color: var(--accent-text);
+}
+
 .pdf-password {
   display: flex;
 }
@@ -836,7 +841,8 @@
   flex: none;
   flex-direction: column;
   gap: var(--space-md);
-  width: var(--panel-sm);
+  /* at most half a narrow window: the picture keeps the other half */
+  width: min(var(--panel-sm), 50%);
   padding: var(--space-md);
   overflow: auto;
   border-left: var(--border-width-1) solid var(--border-subtle);

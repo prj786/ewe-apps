@@ -9,7 +9,7 @@
   flex-direction: column;
   flex: none;
   gap: var(--space-xxs);
-  width: 212px;
+  width: var(--places-w);
   padding: var(--space-s);
   overflow-y: auto;
   background: var(--surface-raised);
@@ -1221,6 +1221,8 @@
 /* ---- ewe Files additions (tokens only) --------------------------------------- */
 
 .fm-app {
+  /* the places column; narrower in a medium window (see "window tiers" at the end) */
+  --places-w: 212px;
   height: 100%;
 }
 
@@ -1866,10 +1868,6 @@
 
 /* ---- narrow panes: the name always wins ------------------------------------- */
 
-.fm-app {
-  width: var(--shot-width, 100%);
-}
-
 .fm {
   position: relative;
 }
@@ -1980,4 +1978,104 @@
 
 .ops-head {
   height: var(--control-xl);
+}
+
+/* ---- window tiers (App.tsx winSize has the same numbers) --------------------------
+   wide ≥ 1100: as designed. medium: a narrower places column without the state chips,
+   a preview of at most 38 %. compact < 760: places is a drawer and the preview floats
+   over the folder (both opened from the header); tiny < 480: the tab strip scrolls. */
+
+@container app (760px <= width < 1100px) {
+  /* (on .fm: a container query never styles the container itself) */
+  .fm {
+    --places-w: 168px;
+  }
+  .fm-place-state {
+    display: none;
+  }
+  .fm-preview {
+    width: min(var(--panel-sm), 38%);
+  }
+}
+
+.fm-places.drawer,
+.fm-preview.overlay {
+  position: absolute;
+  top: var(--space-xs);
+  bottom: var(--space-s);
+  background: var(--surface-overlay);
+  border: var(--border-width-1) solid var(--border-subtle);
+  border-radius: var(--rounded);
+  box-shadow: var(--shadow-float);
+  animation: ewe-slide-down var(--dur-base) var(--ease-out);
+}
+
+.fm-places.drawer {
+  z-index: 7;
+  left: var(--space-s);
+  width: min(var(--places-w), calc(100% - var(--space-xl)));
+}
+
+.fm-preview.overlay {
+  z-index: 5;
+  right: var(--space-s);
+  width: min(var(--panel-sm), calc(100% - var(--space-xl)));
+  overflow-x: hidden;
+}
+
+.fm-preview-close {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--space-md) + var(--space-xs));
+  right: calc(var(--space-md) + var(--space-xs));
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-sm);
+}
+
+/* the close button sits at the card's right edge: its tooltip opens below, leftwards */
+.fm-preview-close[data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + var(--space-xs));
+  left: auto;
+  right: 0;
+  translate: none;
+}
+
+.fm-more-btn.running .icon {
+  color: var(--accent-text);
+}
+
+/* a split tab with no room for two panes (the window or a side panel shrank) shows the
+   active pane only; F3 refuses to split in the first place */
+.fm-main {
+  container: fm-main / inline-size;
+}
+
+@container fm-main (width < 600px) {
+  .fm-tab.split > .fm-pane:not(.active) {
+    display: none;
+  }
+  .fm-tab.split > .fm-pane + .fm-pane {
+    border-left: 0;
+  }
+}
+
+/* the strip fills the header; a tab shrinks to a short label, then the strip scrolls,
+   and the open folder's tab always keeps its name */
+.fm-tabs .tab {
+  min-width: calc(var(--control-2xl) * 2);
+}
+
+.fm-tabs .tab.selected {
+  flex-shrink: 0;
+}
+
+@container app (width < 480px) {
+  .fm-tabs .tab {
+    flex: none;
+    max-width: calc(var(--control-2xl) * 2);
+  }
+  .fm-tabs .tab.selected {
+    max-width: 100%;
+  }
 }

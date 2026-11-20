@@ -22,6 +22,7 @@ import {
   Tabs,
   Toasts,
   Toolbar,
+  applyShotSize,
   getAppVersion,
   getLaunch,
   getMediaServer,
@@ -186,6 +187,7 @@ export function App(): JSX.Element {
   onMount(() => {
     void (async () => {
       const [media, launch] = await Promise.all([getMediaServer(), getLaunch()])
+      applyShotSize(launch.flags)
       setServer(media)
       await openPaths(launch.paths, { flags: launch.flags })
     })()

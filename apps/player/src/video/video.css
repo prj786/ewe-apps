@@ -610,3 +610,13 @@
   gap: var(--space-s);
   margin: var(--space-s) var(--space-xs);
 }
+
+/* --- a narrow bar (VideoPlayer narrowBar: < 560 and not mini) -------------------------
+   the time, speed, picture and audio buttons are in ⋯; the volume keeps its button */
+.vp.narrow .vp-time,
+.vp.narrow .vp-chip,
+.vp.narrow .vp-view-btn,
+.vp.narrow .vp-audio-btn,
+.vp.narrow .vp-volume-label {
+  display: none;
+}

@@ -32,6 +32,7 @@ import {
   Toolbar,
   addRecent,
   toast,
+  type IconName,
   type MenuEntry,
 } from '@ewe/ui'
 import { fileStat, openExternal, saveBytes } from '../lib/bridge'
@@ -138,6 +139,12 @@ export function PdfView(props: ViewProps): JSX.Element {
   const [printing, setPrinting] = createSignal<{ done: number; total: number } | null>(null)
   const [menuAt, setMenuAt] = createSignal<{ x: number; y: number } | null>(null)
   const [zoomMenuAt, setZoomMenuAt] = createSignal<{ x: number; y: number } | null>(null)
+  const [modeMenuAt, setModeMenuAt] = createSignal<{ x: number; y: number } | null>(null)
+  // the toolbar condenses with the window: icon-only below 760 (the page modes become one
+  // button with a menu, the zoom shows its percent) and below 560 find and the page modes
+  // move into ⋯ too
+  const [barWidth, setBarWidth] = createSignal(1280)
+  const barTier = () => (barWidth() < 560 ? 'menu' : barWidth() < 760 ? 'icons' : 'full')
   const [thumbsReady, setThumbsReady] = createSignal(0)
 
   let container: HTMLDivElement | undefined
@@ -754,7 +761,36 @@ export function PdfView(props: ViewProps): JSX.Element {
     },
   )
 
+  const MODES: { value: Mode; label: string; icon: IconName }[] = [
+    { value: 'continuous', label: 'Continuous', icon: 'gallery-vertical' },
+    { value: 'single', label: 'Single', icon: 'file' },
+    { value: 'two', label: 'Two pages', icon: 'book-open' },
+  ]
+  const modeIcon = (): IconName => MODES.find((m) => m.value === mode())?.icon ?? 'file'
+  const modeItems = (): MenuEntry[] =>
+    MODES.map((m) => ({
+      type: 'item',
+      id: m.value,
+      label: m.label,
+      dot: mode() === m.value ? 'var(--accent)' : undefined,
+      run: () => changeMode(m.value),
+    }))
+
   const moreItems = (): MenuEntry[] => [
+    ...(barTier() === 'menu'
+      ? ([
+          {
+            type: 'item',
+            id: 'find',
+            label: 'Find',
+            icon: 'search',
+            hint: 'Ctrl+F',
+            run: () => openFind(),
+          },
+          { type: 'item', id: 'pages', label: 'Pages', icon: modeIcon(), items: modeItems() },
+          { type: 'separator' },
+        ] satisfies MenuEntry[])
+      : []),
     {
       type: 'item',
       id: 'present',
@@ -883,7 +919,15 @@ export function PdfView(props: ViewProps): JSX.Element {
   )
 
   return (
-    <div class="pdf" classList={{ 'pdf--night': night(), 'pdf--presentation': presentation() }}>
+    <div
+      class="pdf"
+      classList={{ 'pdf--night': night(), 'pdf--presentation': presentation() }}
+      ref={(el) => {
+        const ro = new ResizeObserver(() => setBarWidth(el.clientWidth))
+        ro.observe(el)
+        onCleanup(() => ro.disconnect())
+      }}
+    >
       <Toolbar label="PDF" class="view-toolbar">
         <IconButton
           icon="panel-left"
@@ -938,34 +982,62 @@ export function PdfView(props: ViewProps): JSX.Element {
             setZoomMenuAt({ x: r.left, y: r.bottom + 4 })
           }}
         >
-          {zoomLabel()}
+          {barTier() === 'full' ? zoomLabel() : percent(scale())}
           <Icon name="chevron-down" size={14} />
         </button>
         <IconButton icon="zoom-in" label="Zoom in (+)" onClick={() => zoomBy(1)} />
-        <span class="toolbar-divider" />
-        <Segmented
-          small
-          value={mode()}
-          label="Pages"
-          options={[
-            { value: 'continuous', label: 'Continuous' },
-            { value: 'single', label: 'Single' },
-            { value: 'two', label: 'Two pages' },
-          ]}
-          onChange={(v) => changeMode(v as Mode)}
-        />
+        <Show when={barTier() !== 'menu'}>
+          <span class="toolbar-divider" />
+        </Show>
+        <Show
+          when={barTier() === 'full'}
+          fallback={
+            <Show when={barTier() === 'icons'}>
+              <IconButton
+                icon={modeIcon()}
+                label="Pages"
+                onClick={(e) => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  setModeMenuAt({ x: r.left, y: r.bottom + 4 })
+                }}
+              />
+            </Show>
+          }
+        >
+          <Segmented
+            small
+            value={mode()}
+            label="Pages"
+            options={MODES.map((m) => ({ value: m.value, label: m.label }))}
+            onChange={(v) => changeMode(v as Mode)}
+          />
+        </Show>
         <span class="toolbar-spacer" />
         <Show when={dirty()}>
-          <Button small kind="primary" icon="save" onClick={() => void saveCopy()}>
-            Save a copy
-          </Button>
+          <Show
+            when={barTier() === 'full'}
+            fallback={
+              <IconButton
+                icon="save"
+                label="Save a copy (Ctrl+S)"
+                class="pdf-save-icon"
+                onClick={() => void saveCopy()}
+              />
+            }
+          >
+            <Button small kind="primary" icon="save" onClick={() => void saveCopy()}>
+              Save a copy
+            </Button>
+          </Show>
         </Show>
-        <IconButton
-          icon="search"
-          label="Find (Ctrl+F)"
-          active={findOpen()}
-          onClick={() => (findOpen() ? closeFind() : openFind())}
-        />
+        <Show when={barTier() !== 'menu'}>
+          <IconButton
+            icon="search"
+            label="Find (Ctrl+F)"
+            active={findOpen()}
+            onClick={() => (findOpen() ? closeFind() : openFind())}
+          />
+        </Show>
         <IconButton
           icon={night() ? 'sun' : 'moon'}
           label={night() ? 'Normal colours (I)' : 'Night mode (I)'}
@@ -1101,6 +1173,9 @@ export function PdfView(props: ViewProps): JSX.Element {
       </Show>
       <Show when={zoomMenuAt()}>
         {(at) => <Menu items={zoomItems()} at={at()} onClose={() => setZoomMenuAt(null)} />}
+      </Show>
+      <Show when={modeMenuAt()}>
+        {(at) => <Menu items={modeItems()} at={at()} onClose={() => setModeMenuAt(null)} />}
       </Show>
       <Dialog
         open={password() !== null}

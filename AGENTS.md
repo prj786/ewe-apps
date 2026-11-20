@@ -51,7 +51,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.1.0-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.1.1-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -149,6 +149,10 @@ src-tauri/src/comics.rs     natural order (tested), page filter, zip in-process;
                             lsar/unar
 ```
 
+The PDF toolbar condenses by its width: icon-only below 760 (the page modes become one button
+with a menu, the zoom shows only its percent, "Save a copy" an icon), and below 560 Find and the
+page modes move into ⋯. The image info panel takes at most half the window.
+
 Launch flags (all `--key=value`, for the paths on the same command line): `--page=N`, `--find=text`,
 `--sidebar=pages|contents`, `--mode=continuous|single|two`, `--zoom=page-width|page-fit|1.5`,
 `--night`, `--present`, `--fill=field=value` (PDF); `--toc`, `--flow=paged|scrolled`,
@@ -236,9 +240,21 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
-- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview`
-  puts a fresh window into that state (used for the screenshots); `--shot-width=900` narrows the
-  app root to check a small window inside cage's fixed 1280×720 output.
+- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
+  puts a fresh window into that state (used for the screenshots); `--shot-width=900` /
+  `--shot-height=600` size the app root like a smaller window inside cage's fixed 1280×720
+  output (all three apps: `applyShotSize` in the kit; the root gets `contain: layout`, so
+  dialogs and toasts stay inside it — menus still clamp to the 1280 viewport).
+- **Window tiers** (the window's width: `winSize` in App.tsx; files.css has the same numbers as
+  container queries on `app`, the container the kit makes of every `.app` root): wide ≥ 1100
+  as designed; medium 760–1100 = places column 168px without its state chips, preview at most
+  38 %; compact < 760 = places hidden, the places button opens it as a drawer over the pane
+  (closes on a place, Esc or a click outside), F9 opens the preview as an overlay with a close
+  button — both session-only, `prefs.places`/`prefs.preview` stay as saved — and Split, Preview,
+  Operations, New window fold into a ⋯ menu; tiny < 480 = the tab strip scrolls, other tabs at
+  96px. Everywhere: the open folder's tab keeps its name; F3 refuses ("Not enough room for two
+  panes") when `.fm-main` < 2 × 300px, and a split tab that no longer fits shows its active
+  pane only (`@container fm-main`).
 - Narrow panes (split view, the preview pane): the pane is a CSS container; the list drops Type
   (< 760px), then Modified (< 560px), then Size (< 400px) and the name ellipsizes, never
   vanishes. The toolbar condenses by pane width (`tier`: wide ≥ 860, medium, narrow < 560):
@@ -278,7 +294,13 @@ src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+
 - **argv**: files, folders, `.m3u`, `http(s)://` URLs (`Launch.urls`); `--enqueue` appends to the
   running instance instead of replacing; `--scene=<name>` is the screenshot hook (`controls`,
   `subs-menu`, `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
-  `music-now`, `music-playing`). `$EWE_MUSIC_DIR` overrides the music root.
+  `music-now`, `music-playing`), `--shot-width=` as in Files. `$EWE_MUSIC_DIR` overrides the
+  music root. Music scenes need `SHOT_WAIT=6` on a fresh home (the first scan).
+- **Narrow windows**: the music nav is a labelled column, an icon rail below 720 (labels as
+  tooltips) and a segmented control over the list below 520 (Rescan moves into the ⋯ menu, the
+  bar keeps the mute button only). The video bar below 560 (`narrowBar`, the stage's width, not
+  in the mini window) hides the time, speed, picture and audio buttons; Speed and "Fit, zoom,
+  rotate" join ⋯ as submenus.
 - **MPRIS**: the webview is the source of truth; it pushes `mpris_update` (status, position every
   second, metadata with a `file://` art URL from `cover_art_file`, volume, loop, shuffle, rate) and
   the Rust `Player` answers the bus; method calls come back as the `mpris-command` event. Test

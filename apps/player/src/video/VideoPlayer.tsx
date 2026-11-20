@@ -158,8 +158,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   /** sound plays but there is no picture: the video codec is missing */
   const [noPicture, setNoPicture] = createSignal<string | null>(null)
   let pictureTimer: ReturnType<typeof setTimeout> | null = null
+  type MenuKind = 'speed' | 'subs' | 'audio' | 'view' | 'more'
   const [menu, setMenu] = createSignal<{
-    kind: 'speed' | 'subs' | 'audio' | 'view' | 'more'
+    kind: MenuKind
     at: { x: number; y: number }
   } | null>(null)
   const [waiting, setWaiting] = createSignal(false)
@@ -700,11 +701,18 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     return style
   }
 
+  // a narrow bar (a small window, or the playlist beside the video) keeps the transport,
+  // volume and seek bar; the time, speed, picture and audio buttons move into ⋯ (the mini
+  // window has its own rules in video.css and keeps them)
+  const narrowBar = () => !props.mini && stageSize().w > 0 && stageSize().w < 560
+
   const check = (on: boolean) => (on ? ('check' as const) : undefined)
   const menuItems = (): MenuEntry[] => {
     const m = menu()
-    if (m === null) return []
-    switch (m.kind) {
+    return m === null ? [] : itemsFor(m.kind)
+  }
+  const itemsFor = (kind: MenuKind): MenuEntry[] => {
+    switch (kind) {
       case 'speed':
         return SPEEDS.map((s) => ({
           type: 'item',
@@ -825,6 +833,25 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         ]
       case 'more':
         return [
+          ...(narrowBar()
+            ? ([
+                {
+                  type: 'item',
+                  id: 'speed',
+                  label: `Speed · ${formatSpeed(speed())}`,
+                  icon: 'gauge',
+                  items: itemsFor('speed'),
+                },
+                {
+                  type: 'item',
+                  id: 'view',
+                  label: 'Fit, zoom, rotate',
+                  icon: 'scan',
+                  items: itemsFor('view'),
+                },
+                { type: 'separator' },
+              ] satisfies MenuEntry[])
+            : []),
           {
             type: 'item',
             id: 'files',
@@ -880,7 +907,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           }))
     return []
   }
-  const openMenu = (kind: NonNullable<ReturnType<typeof menu>>['kind'], e: MouseEvent) => {
+  const openMenu = (kind: MenuKind, e: MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     setMenu({ kind, at: { x: r.left, y: r.top - 4 } })
   }
@@ -897,6 +924,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         'controls-hidden': !visible() && playing(),
         [`sub-${props.prefs.subSize}`]: true,
         mini: props.mini,
+        narrow: narrowBar(),
       }}
       onMouseMove={poke}
       onMouseLeave={() => {
@@ -1206,12 +1234,14 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
               <IconButton
                 icon="languages"
                 label="Audio track"
+                class="vp-audio-btn"
                 onClick={(e) => openMenu('audio', e)}
               />
             </Show>
             <IconButton
               icon="scan"
               label="Fit, zoom, rotate"
+              class="vp-view-btn"
               onClick={(e) => openMenu('view', e)}
             />
             <IconButton

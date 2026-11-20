@@ -34,6 +34,7 @@ import {
   Segmented,
   Toasts,
   Toolbar,
+  applyShotSize,
   getAppVersion,
   getLaunch,
   getMediaServer,
@@ -369,6 +370,7 @@ export function App(): JSX.Element {
           }, 4000)
       })
     void getLaunch().then((l) => {
+      applyShotSize(l.flags)
       const wanted = l.flags.find((f) => f.startsWith('--scene='))?.slice('--scene='.length)
       if (wanted !== undefined) {
         setScene(wanted)

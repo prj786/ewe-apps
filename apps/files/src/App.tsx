@@ -10,6 +10,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   type JSX,
@@ -53,6 +54,7 @@ import {
   Menu,
   Tabs,
   Toasts,
+  applyShotSize,
   getMediaServer,
   toast,
   type IconName,
@@ -170,6 +172,47 @@ export function App(): JSX.Element {
   const home = () => tools()?.home ?? places().find((p) => p.id === 'home')?.path ?? '~'
   const label = windowLabel()
 
+  // ---- window size ------------------------------------------------------------------
+  // The window's width picks the layout (files.css has the same numbers as `app`
+  // container queries): wide ≥ 1100 is the full layout; medium narrows the places column
+  // and the preview; compact (< 760) puts places in a drawer and the preview over the
+  // folder, and folds the header into ⋯; tiny (< 480) also scrolls the tab strip.
+  const [winWidth, setWinWidth] = createSignal(window.innerWidth)
+  const winSize = createMemo(() => {
+    const w = winWidth()
+    return w < 480 ? 'tiny' : w < 760 ? 'compact' : w < 1100 ? 'medium' : 'wide'
+  })
+  const compact = () => winWidth() < 760
+  // compact windows open places and the preview for this session only: the saved prefs
+  // stay as they are for when the window grows again
+  const [placesDrawer, setPlacesDrawer] = createSignal(false)
+  const [previewOverlay, setPreviewOverlay] = createSignal(false)
+  createEffect(
+    on(compact, (c) => {
+      if (!c) {
+        setPlacesDrawer(false)
+        setPreviewOverlay(false)
+      }
+    }),
+  )
+  const placesShown = () => (compact() ? placesDrawer() : prefs().places)
+  const previewShown = () => (compact() ? previewOverlay() : prefs().preview)
+  const togglePlaces = () => {
+    if (compact()) setPlacesDrawer((v) => !v)
+    else setPrefs((p) => ({ ...p, places: !p.places }))
+  }
+  const togglePreview = () => {
+    if (compact()) setPreviewOverlay((v) => !v)
+    else setPrefs((p) => ({ ...p, preview: !p.preview }))
+  }
+  const showPreview = () => {
+    if (compact()) setPreviewOverlay(true)
+    else setPrefs((p) => ({ ...p, preview: true }))
+  }
+  // two panes need twice the pane's min-width (`.fm-pane` in files.css)
+  const PANE_MIN = 300
+  let mainEl: HTMLDivElement | undefined
+
   // ---- tabs and panes ------------------------------------------------------------
 
   const currentTab = createMemo(() => tabs.find((t) => t.id === activeTab()) ?? null)
@@ -224,6 +267,10 @@ export function App(): JSX.Element {
       setTabs((x) => x.id === t.id, 'panes', [keep])
       setTabs((x) => x.id === t.id, 'active', 0)
     } else {
+      if ((mainEl?.clientWidth ?? 0) < 2 * PANE_MIN) {
+        toast('Not enough room for two panes')
+        return
+      }
       const pane = newPane(activePath() === TRASH_PATH ? home() : activePath())
       setTabs(
         (x) => x.id === t.id,
@@ -1065,7 +1112,9 @@ export function App(): JSX.Element {
       const t = tabs[Number(e.key) - 1]
       if (t !== undefined) setActiveTab(t.id)
     } else if (e.key === 'F3') splitToggle()
-    else if (e.key === 'F9') setPrefs((p) => ({ ...p, preview: !p.preview }))
+    else if (e.key === 'F9') togglePreview()
+    else if (e.key === 'Escape' && placesDrawer()) setPlacesDrawer(false)
+    else if (e.key === 'Escape' && previewOverlay()) setPreviewOverlay(false)
     else if (ctrl && e.key === 'l') pane.editPath()
     else if (ctrl && e.key === 'f' && !e.shiftKey) pane.focusFilter()
     else if (ctrl && e.key === 'F') setSearchOpen(true)
@@ -1263,7 +1312,7 @@ export function App(): JSX.Element {
           break
         case 'ops-preview': {
           setPref(pane.path(), { view: 'list' })
-          setPrefs((p) => ({ ...p, preview: true }))
+          showPreview()
           const src = pick('archlinux-2026.11.iso')
           if (src !== undefined) {
             pane.select([src.path])
@@ -1288,7 +1337,7 @@ export function App(): JSX.Element {
           break
         case 'grid-preview':
           setPref(pane.path(), { view: 'grid' })
-          setPrefs((p) => ({ ...p, preview: true }))
+          showPreview()
           if (first !== undefined) pane.select([first.path])
           break
         case 'rename':
@@ -1296,8 +1345,24 @@ export function App(): JSX.Element {
           after(100, () => setDialog({ kind: 'rename-many', entries: pane.selected(), pane }))
           break
         case 'preview':
-          setPrefs((p) => ({ ...p, preview: true }))
+          showPreview()
           if (first !== undefined) pane.select([first.path])
+          break
+        case 'places':
+          if (compact()) setPlacesDrawer(true)
+          break
+        case 'more':
+          document.querySelector<HTMLElement>('.fm-more-btn')?.click()
+          break
+        case 'tabs':
+          for (const name of ['Documents', 'Pictures', 'Music', 'Downloads'])
+            openTab(joinHome(name), { activate: name === 'Music' })
+          break
+        case 'compress':
+          if (first !== undefined) {
+            pane.select([first.path])
+            setDialog({ kind: 'compress', paths: [first.path], pane })
+          }
           break
         default:
           break
@@ -1317,9 +1382,7 @@ export function App(): JSX.Element {
     refreshOps()
     void api.windowLaunch().then((l) =>
       applyLaunch(l, true).then(() => {
-        const width = l.flags.find((f) => f.startsWith('--shot-width='))
-        if (width !== undefined)
-          document.documentElement.style.setProperty('--shot-width', `${Number(width.slice(13))}px`)
+        applyShotSize(l.flags)
         const shot = l.flags.find((f) => f.startsWith('--shot='))
         if (shot !== undefined) runShot(shot.slice(7))
       }),
@@ -1393,7 +1456,9 @@ export function App(): JSX.Element {
     window.addEventListener('pointerdown', (e) => {
       setDropTarget(null)
       const t = e.target as HTMLElement | null
-      if (opsOpen() && t?.closest('.ops, .fm-ops-btn') === null) setOpsOpen(false)
+      if (opsOpen() && t?.closest('.ops, .fm-ops-btn, .fm-more-btn') === null) setOpsOpen(false)
+      if (placesDrawer() && t?.closest('.fm-places, .fm-places-btn') === null)
+        setPlacesDrawer(false)
     })
     window.addEventListener('beforeunload', () => void api.windowClosed())
     // drops from other apps (and our own uri-list drags) come through Tauri
@@ -1480,14 +1545,59 @@ export function App(): JSX.Element {
     return rows.length === 1 ? (rows[0] ?? null) : null
   }
 
+  // compact windows: Split, Preview, Operations and New window in one ⋯ menu
+  const moreMenu = (e: MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const split = (currentTab()?.panes.length ?? 1) > 1
+    setMenu({
+      at: { x: r.right, y: r.bottom + 4 },
+      items: [
+        item('split', split ? 'Close split view' : 'Split view', 'columns-2', splitToggle, {
+          hint: 'F3',
+        }),
+        item(
+          'preview',
+          previewShown() ? 'Hide the preview' : 'Preview',
+          'panel-right',
+          togglePreview,
+          { hint: 'F9' },
+        ),
+        ...(ops().length > 0
+          ? [
+              item('ops', 'Operations', running() ? 'refresh-cw' : 'circle-check', () =>
+                setOpsOpen(true),
+              ),
+            ]
+          : []),
+        sep(),
+        item(
+          'window',
+          'New window',
+          'app-window',
+          () => void api.newWindow([activePath() === TRASH_PATH ? home() : activePath()]),
+          { hint: 'Ctrl+N' },
+        ),
+      ],
+    })
+  }
+
   return (
-    <div class="app fm-app">
+    <div
+      class="app fm-app"
+      data-size={winSize()}
+      ref={(el) => {
+        const ro = new ResizeObserver(() => setWinWidth(el.clientWidth))
+        ro.observe(el)
+        onCleanup(() => ro.disconnect())
+      }}
+    >
       <header class="fm-tabbar">
         <IconButton
           icon="panel-left"
-          label={prefs().places ? 'Hide places' : 'Show places'}
-          active={prefs().places}
-          onClick={() => setPrefs((p) => ({ ...p, places: !p.places }))}
+          class="fm-places-btn"
+          label={placesShown() ? 'Hide places' : compact() ? 'Places' : 'Show places'}
+          active={placesShown()}
+          onClick={togglePlaces}
         />
         <Tabs
           tabs={tabItems()}
@@ -1501,60 +1611,85 @@ export function App(): JSX.Element {
           }
           onMenu={(id, at) => tabMenu(id, at)}
         />
-        <span class="toolbar-spacer" />
         <IconButton
           icon="search"
           label="Search (Ctrl+Shift+F)"
           active={searchOpen()}
           onClick={() => setSearchOpen((s) => !s)}
         />
-        <IconButton
-          icon="columns-2"
-          label="Split view (F3)"
-          active={(currentTab()?.panes.length ?? 1) > 1}
-          onClick={splitToggle}
-        />
-        <IconButton
-          icon="panel-right"
-          label="Preview pane (F9)"
-          active={prefs().preview}
-          onClick={() => setPrefs((p) => ({ ...p, preview: !p.preview }))}
-        />
-        <Show when={ops().length > 0}>
-          <button
-            class="iconbtn fm-ops-btn"
-            classList={{ running: running(), active: opsOpen() }}
-            aria-label="Operations"
-            data-tooltip="Operations"
-            onClick={() => setOpsOpen((o) => !o)}
-          >
-            <Icon
-              name={running() ? 'refresh-cw' : 'circle-check'}
-              class={running() ? 'spin' : ''}
+        <Show
+          when={!compact()}
+          fallback={
+            <IconButton
+              icon="ellipsis"
+              label="More"
+              class={running() ? 'fm-more-btn running' : 'fm-more-btn'}
+              onClick={moreMenu}
             />
-          </button>
+          }
+        >
+          <IconButton
+            icon="columns-2"
+            label="Split view (F3)"
+            active={(currentTab()?.panes.length ?? 1) > 1}
+            onClick={splitToggle}
+          />
+          <IconButton
+            icon="panel-right"
+            label="Preview pane (F9)"
+            active={prefs().preview}
+            onClick={togglePreview}
+          />
+          <Show when={ops().length > 0}>
+            <button
+              class="iconbtn fm-ops-btn"
+              classList={{ running: running(), active: opsOpen() }}
+              aria-label="Operations"
+              data-tooltip="Operations"
+              onClick={() => setOpsOpen((o) => !o)}
+            >
+              <Icon
+                name={running() ? 'refresh-cw' : 'circle-check'}
+                class={running() ? 'spin' : ''}
+              />
+            </button>
+          </Show>
+          <IconButton
+            icon="app-window"
+            label="New window (Ctrl+N)"
+            onClick={() =>
+              void api.newWindow([activePath() === TRASH_PATH ? home() : activePath()])
+            }
+          />
         </Show>
-        <IconButton
-          icon="app-window"
-          label="New window (Ctrl+N)"
-          onClick={() => void api.newWindow([activePath() === TRASH_PATH ? home() : activePath()])}
-        />
       </header>
       <div class="fm">
-        <Show when={prefs().places}>
+        <Show when={placesShown()}>
           <Places
+            drawer={compact()}
             places={places()}
             devices={devices()}
             activePath={activePath()}
             dropTarget={dropTarget()}
             trashCount={trashRows().length}
-            onOpen={openPlace}
-            onOpenPath={(path, newTab) =>
-              newTab ? openTab(path, { activate: false }) : activePane()?.go(path)
-            }
-            onDevice={deviceAction}
+            onOpen={(place) => {
+              setPlacesDrawer(false)
+              openPlace(place)
+            }}
+            onOpenPath={(path, newTab) => {
+              setPlacesDrawer(false)
+              if (newTab) openTab(path, { activate: false })
+              else activePane()?.go(path)
+            }}
+            onDevice={(d, action) => {
+              if (action === 'open' || action === 'mount') setPlacesDrawer(false)
+              deviceAction(d, action)
+            }}
             onMenu={placeMenu}
-            onConnect={() => setDialog({ kind: 'connect' })}
+            onConnect={() => {
+              setPlacesDrawer(false)
+              setDialog({ kind: 'connect' })
+            }}
             dropHandlers={(dir) => ({
               'data-drop': dir(),
               onDragOver: (e: DragEvent) => {
@@ -1572,7 +1707,7 @@ export function App(): JSX.Element {
             })}
           />
         </Show>
-        <div class="fm-main">
+        <div class="fm-main" ref={mainEl}>
           <Show when={searchOpen()}>
             <SearchBar
               plocate={tools()?.plocate ?? false}
@@ -1614,12 +1749,14 @@ export function App(): JSX.Element {
             )}
           </For>
         </div>
-        <Show when={prefs().preview}>
+        <Show when={previewShown()}>
           <Preview
             row={previewRow()}
             rawUrl={raw}
             thumbUrl={thumb}
             onOpen={(r) => void openExternal([r.path])}
+            overlay={compact()}
+            onClose={() => setPreviewOverlay(false)}
           />
         </Show>
         <Show when={opsOpen() && ops().length > 0}>

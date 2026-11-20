@@ -71,7 +71,7 @@ export function StartScreen(props: StartScreenProps): JSX.Element {
     <div class="st" classList={{ dropping: props.dropping }}>
       <div class="st-hero">
         <EmptyState icon="play" title="ewe Player" heading="h1">
-          Open a video or a song, drop files here, or go to your music.
+          Open a video or a song, or drop one here.
         </EmptyState>
         <div class="st-actions">
           <Button kind="primary" icon="folder-open" onClick={() => props.onOpenFiles()}>

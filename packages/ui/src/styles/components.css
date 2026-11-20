@@ -438,6 +438,21 @@
   top: calc(100% + var(--space-xs));
 }
 
+/* in a bar at the top of the window a tooltip above would be off the window: below,
+   and the last button's tooltip keeps to the window's right edge */
+.app-header [data-tooltip]::after,
+.view-toolbar [data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + var(--space-xs));
+}
+
+.app-header [data-tooltip]:last-child::after,
+.view-toolbar [data-tooltip]:last-child::after {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+
 .dialog-scrim {
   position: fixed;
   inset: 0;
@@ -524,6 +539,9 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-s);
+  /* sized by the text, not by the half of the window right of `left: 50%` */
+  width: max-content;
+  max-width: calc(100% - 2 * var(--space-md));
   pointer-events: none;
 }
 
@@ -860,6 +878,16 @@
   height: 100%;
   background: var(--surface-base);
   color: var(--text-primary);
+  /* the window's width, for the apps' layout tiers (@container app (…)) */
+  container: app / inline-size;
+}
+
+/* scripts/shot.sh: a smaller window inside cage's fixed output (applyShotSize);
+   layout containment keeps fixed layers (dialogs, menus, toasts) inside the root */
+:root[data-shot] .app {
+  width: var(--shot-width, 100%);
+  height: var(--shot-height, 100%);
+  contain: layout;
 }
 
 .app-header {

@@ -2,7 +2,7 @@
 
 import { Match, Show, Switch, createResource, type JSX } from 'solid-js'
 import { fileKind, formatBytes, type FsEntry, type ThumbSize } from '@ewe/shared'
-import { Button, EmptyState, Icon } from '@ewe/ui'
+import { Button, EmptyState, Icon, IconButton } from '@ewe/ui'
 import { api } from './api'
 import { fmtDate } from './dialogs'
 import { KIND_ICON, KIND_LABEL, type Row } from './pane'
@@ -13,6 +13,9 @@ export function Preview(props: {
   rawUrl(path: string): string
   thumbUrl(path: string, size: ThumbSize): string
   onOpen(row: FsEntry): void
+  /** compact windows: the pane floats over the folder and has a close button */
+  overlay?: boolean | undefined
+  onClose?: (() => void) | undefined
 }): JSX.Element {
   const kind = () => (props.row === null ? 'other' : fileKind(props.row))
   const [mime] = createResource(
@@ -34,7 +37,18 @@ export function Preview(props: {
     },
   )
   return (
-    <aside class="fm-preview" aria-label="Preview">
+    <aside class="fm-preview" classList={{ overlay: props.overlay ?? false }} aria-label="Preview">
+      <Show when={props.overlay === true && props.onClose}>
+        {(close) => (
+          <IconButton
+            icon="x"
+            label="Close the preview (F9)"
+            size="sm"
+            class="fm-preview-close"
+            onClick={() => close()()}
+          />
+        )}
+      </Show>
       <Show
         when={props.row}
         fallback={

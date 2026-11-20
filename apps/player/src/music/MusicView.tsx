@@ -36,6 +36,7 @@ import {
   Icon,
   IconButton,
   Menu,
+  Segmented,
   addRecent,
   toast,
   type IconName,
@@ -644,6 +645,12 @@ export function MusicView(props: MusicViewProps): JSX.Element {
     return NAV.find((n) => n.kind === navKind())?.label ?? 'Music'
   }
 
+  // the window's width picks the nav: a labelled column, an icon rail (< 720) or a
+  // segmented control over the list (< 520)
+  const [width, setWidth] = createSignal(1280)
+  const navMode = () => (width() < 520 ? 'top' : width() < 720 ? 'rail' : 'column')
+  const scanning = () => props.library?.scanning ?? false
+
   const empty = () => (props.library?.tracks.length ?? 0) === 0 && queue().length === 0
   const rootLabel = () => props.library?.roots[0]?.replace(/^\/home\/[^/]+/, '~') ?? ''
 
@@ -685,59 +692,114 @@ export function MusicView(props: MusicViewProps): JSX.Element {
         setPlaying(false)
       },
     },
+    // no nav column in a narrow window: its Rescan button lives here
+    ...(navMode() === 'top'
+      ? ([
+          { type: 'separator' },
+          {
+            type: 'item',
+            id: 'rescan',
+            label: scanning() ? 'Scanning…' : 'Rescan the music folder',
+            icon: 'rotate-cw',
+            disabled: scanning(),
+            run: () => props.onRescan(),
+          },
+        ] satisfies MenuEntry[])
+      : []),
   ]
 
   return (
-    <div class="mu">
-      <aside class="mu-nav">
-        <For each={NAV}>
-          {(item) => (
+    <div
+      class="mu"
+      classList={{ rail: navMode() === 'rail', top: navMode() === 'top' }}
+      ref={(el) => {
+        const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+        ro.observe(el)
+        onCleanup(() => ro.disconnect())
+      }}
+    >
+      <Show when={navMode() !== 'top'}>
+        <aside class="mu-nav">
+          <For each={NAV}>
+            {(item) => (
+              <button
+                class="mu-nav-item"
+                classList={{ active: navKind() === item.kind && query() === '' }}
+                data-view={item.kind}
+                aria-label={item.label}
+                data-tooltip={navMode() === 'rail' ? item.label : undefined}
+                onClick={() => {
+                  setQuery('')
+                  setView({ kind: item.kind })
+                }}
+              >
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+                <span class="mu-count">{item.count()}</span>
+              </button>
+            )}
+          </For>
+          <Show when={current()}>
             <button
               class="mu-nav-item"
-              classList={{ active: navKind() === item.kind && query() === '' }}
-              data-view={item.kind}
+              classList={{ active: view().kind === 'now' && query() === '' }}
+              aria-label="Now playing"
+              data-tooltip={navMode() === 'rail' ? 'Now playing' : undefined}
               onClick={() => {
                 setQuery('')
-                setView({ kind: item.kind })
+                setView({ kind: 'now' })
               }}
             >
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-              <span class="mu-count">{item.count()}</span>
+              <Icon name="audio-lines" />
+              <span>Now playing</span>
             </button>
-          )}
-        </For>
-        <Show when={current()}>
-          <button
-            class="mu-nav-item"
-            classList={{ active: view().kind === 'now' && query() === '' }}
-            onClick={() => {
-              setQuery('')
-              setView({ kind: 'now' })
-            }}
+          </Show>
+          <span class="mu-grow" />
+          <Show
+            when={navMode() === 'column'}
+            fallback={
+              <IconButton
+                icon="rotate-cw"
+                label={scanning() ? 'Scanning…' : `Rescan ${rootLabel() || 'the music folder'}`}
+                class="mu-rescan-icon"
+                disabled={scanning()}
+                onClick={() => props.onRescan()}
+              />
+            }
           >
-            <Icon name="audio-lines" />
-            <span>Now playing</span>
-          </button>
-        </Show>
-        <span class="mu-grow" />
-        <div class="mu-root" title={props.library?.roots.join('\n')}>
-          <Icon name="folder" size={14} />
-          <span>{rootLabel()}</span>
-        </div>
-        <Button
-          small
-          kind="ghost"
-          icon="rotate-cw"
-          class="mu-rescan"
-          disabled={props.library?.scanning ?? false}
-          onClick={() => props.onRescan()}
-        >
-          {(props.library?.scanning ?? false) ? 'Scanning…' : 'Rescan'}
-        </Button>
-      </aside>
+            <div class="mu-root" title={props.library?.roots.join('\n')}>
+              <Icon name="folder" size={14} />
+              <span>{rootLabel()}</span>
+            </div>
+            <Button
+              small
+              kind="ghost"
+              icon="rotate-cw"
+              class="mu-rescan"
+              disabled={scanning()}
+              onClick={() => props.onRescan()}
+            >
+              {scanning() ? 'Scanning…' : 'Rescan'}
+            </Button>
+          </Show>
+        </aside>
+      </Show>
 
       <main class="mu-main">
+        <Show when={navMode() === 'top'}>
+          <div class="mu-tabs">
+            <Segmented
+              small
+              label="Music"
+              value={query() === '' ? navKind() : ''}
+              options={NAV.map((n) => ({ value: n.kind, label: n.label }))}
+              onChange={(v) => {
+                setQuery('')
+                setView({ kind: v as MainView })
+              }}
+            />
+          </div>
+        </Show>
         <header class="mu-head">
           <Show when={view().kind === 'album' || view().kind === 'artist'}>
             <IconButton

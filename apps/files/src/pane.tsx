@@ -29,6 +29,7 @@ import {
   sortEntries,
   syncLabel,
   syncRootOf,
+  thumbSizeFor,
   type AppEntry,
   type AppListing,
   type FileKind,
@@ -693,7 +694,11 @@ export function Pane(props: PaneProps): JSX.Element {
         <Show when={wantsThumb()}>
           <img
             class="fm-thumb"
-            src={ctx().thumbUrl(p.entry.path, p.grid ? 256 : 128)}
+            src={ctx().thumbUrl(
+              p.entry.path,
+              // the tile's picture is 0.75 × the zoom (files.css), in device pixels
+              p.grid ? thumbSizeFor(Math.ceil(prefs().zoom * 0.75 * window.devicePixelRatio)) : 128,
+            )}
             alt=""
             loading="lazy"
             decoding="async"
@@ -849,6 +854,16 @@ export function Pane(props: PaneProps): JSX.Element {
           classList={{
             editing: editingPath(),
             hidden: tier() !== 'wide' && filterShown() && !editingPath(),
+          }}
+          ref={(el) => {
+            // a deep path keeps its end in view: the folder you are in, not "/ › tmp › …"
+            createEffect(() => {
+              crumbs()
+              paneWidth()
+              queueMicrotask(() => {
+                el.scrollLeft = el.scrollWidth
+              })
+            })
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setEditingPath(true)

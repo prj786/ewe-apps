@@ -15,7 +15,8 @@ Cargo.toml                          cargo workspace: crates/core, apps/*/src-tau
 packages/shared  @ewe/shared        pure TS, tested with vitest: models (Point/Rect/Size/ThemeTokens),
                                     menu placement, files.ts (FsEntry, places, kinds, sort/filter,
                                     gvfsLabel, sync helpers), music.ts (albums/artists/search/shuffle),
-                                    media.ts (rawUrl/thumbUrl/coverUrl), format.ts, requests.ts (the
+                                    media.ts (rawUrl/thumbUrl/coverUrl/pictureUrl), text.ts (textUrl,
+                                    readText, TEXT_ENCODINGS + their words), format.ts, requests.ts (the
                                     shapes the core returns: Launch, AppInfo, MimeInfo, …)
 packages/ui      @ewe/ui            Solid kit: Icon (Lucide paths inline), Menu (+submenus, swatches),
                                     Switch, Segmented, EmptyState, Dialog, Toast(s), Tooltip, Slider,
@@ -24,7 +25,9 @@ packages/ui      @ewe/ui            Solid kit: Icon (Lucide paths inline), Menu 
                                     theme/ (parseEweTokens, applyTheme, followTheme); app/bridge.ts
                                     (getLaunch, onLaunch, getMediaServer, getAppVersion, addRecent)
 crates/core      ewe-app-core       theme (read + notify watch), server (axum loopback media server),
-                                    thumbs (freedesktop cache), cover (lofty + sidecar), recent
+                                    thumbs (freedesktop cache), text (any encoding → UTF-8: BOM, UTF-8,
+                                    chardetng + encoding_rs), picture (HEIC → cached JPEG; HEIC/AVIF/
+                                    JXL decoded for thumbnails), cover (lofty + sidecar), recent
                                     (recently-used.xbel), mime (GIO), exif (kamadak-exif → ExifInfo),
                                     launch (argv), app (the Tauri builder; `run_with` takes a builder
                                     hook for app plugins), commands (the Tauri commands), xdg
@@ -47,7 +50,7 @@ npx -y pnpm@11.13.0 lint                 # eslint flat config: typescript-eslint
 npx -y pnpm@11.13.0 format               # prettier (format:check in CI)
 npx -y pnpm@11.13.0 test                 # vitest: packages/shared, packages/ui
 npx -y pnpm@11.13.0 test                 # also apps/viewer: memory, csv, exif, flags
-cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif) + the viewer's comics
+cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif, text encodings, HEIC) + the viewer's comics + the player's subtitles in every encoding
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
@@ -84,10 +87,42 @@ handler![…])`): `--version` prints JSON and exits 0 (rule 5); `glib::set_prgna
   `rawUrl(server, path)` = `http://127.0.0.1:<port>/raw/<name>?path=…&t=…` (single-range 206,
   `Accept-Ranges`, ETag/304, content types incl. mkv/opus/flac fixes), `thumbUrl(server, path,
 128|256|512)` (freedesktop cache read/write, `image` crate with EXIF orientation,
-  `ffmpegthumbnailer` for video, embedded cover for audio, 3 generations at once), `coverUrl`.
+  `ffmpegthumbnailer` for video, embedded cover for audio, HEIC/AVIF/JPEG XL through
+  `heif-dec`/`djxl`, 3 generations at once), `coverUrl`.
   Only regular files under absolute paths; 403 without the token; the CSP allows
   `http://127.0.0.1:*` for img/media/connect only. `EWE_APPS_MEDIA_SERVER_FILE=<path>` makes the
   app write `{port, token}` there (tests, curl).
+- **Text in any encoding** (`text.rs`, `/text/<name>?path=&t=[&enc=][&max=]`, `readText()` in
+  @ewe/shared): a BOM (UTF-8/16) wins, then valid UTF-8, then BOM-less UTF-16 (NULs in every
+  other byte), else Firefox's `chardetng` guesses with a hint — the language tag in the file
+  name (`Movie.ru.srt` → `ru`) or the system locale (`LC_ALL`/`LC_CTYPE`/`LANG`) mapped to the
+  TLD chardetng weighs — and `encoding_rs` decodes. The route answers UTF-8 with
+  `X-Ewe-Encoding` (WHATWG name), `X-Ewe-Encoding-Confident` (0 = the hint swayed the guess)
+  and `X-Ewe-Truncated`, all three exposed through CORS; `enc=` forces any WHATWG label, `max=`
+  reads a prefix (default 2 MB, at most 32 MB; a character cut in half is dropped). Used by the
+  Viewer's text view / Markdown / CSV, Files' quick look and preview, the Player's subtitles
+  (`subtitle_vtt {path, encoding?}` → `{vtt, encoding, confident}`) and `.m3u` titles. The
+  fixtures (`crates/core/tests/fixtures/text/`, written by Python's codecs with
+  `make_text_fixtures.py`) are one subtitle in cp1251/1253/1254/1255/1256, GBK, GB18030, Big5,
+  Shift_JIS, EUC-KR, Latin-1, UTF-16 with and without a BOM and UTF-8.
+- **Phone pictures** (`picture.rs`, `/picture/<name>?path=&t=`, `pictureUrl()`): WebKitGTK 2.54
+  shows AVIF and JPEG XL itself (libavif, libjxl) but has no HEIF decoder, so `.heic/.heif/.hif`
+  go through `heif-dec -q 92` into `$XDG_CACHE_HOME/ewe-apps/pictures/<md5 uri>-<size>-<mtime>.jpg`
+  (a changed file gets a new copy and the old one goes; least recently used pruned at 512 MB;
+  two conversions at once; 30 s limit per decoder). heif-dec applies the HEIF rotation and
+  writes EXIF orientation 1, so the JPEG is upright and WebKit does not turn it again; the info
+  panel reads EXIF from the original (kamadak-exif reads HEIF). Thumbnails of HEIC/AVIF/JXL
+  decode into a temp PNG (`heif-dec`, `djxl`, `avifdec`, then `magick`), or reuse the viewable
+  copy when the Viewer already made one. `libheif` is a dependency of the package.
+- **User text direction** (L4): every element that shows a name, title or tag (file rows,
+  grid, crumbs, places, tabs, menus, song lists, Now playing, Viewer tabs/toolbars/start
+  screen) carries `dir="auto"`; the kit's base.css gives `:where([dir='auto'])`
+  `text-align: match-parent`, so an Arabic or Hebrew name reads right to left with its ellipsis
+  at its own end but lines up with the left-to-right chrome (never mirrored). Text views use
+  `unicode-bidi: plaintext` per paragraph/line. The font stacks get Noto faces for Arabic,
+  Hebrew, Georgian, Armenian, the Indic scripts, Thai, Lao, Khmer, Myanmar and Ethiopic before
+  `system-ui` (`SCRIPT_FONTS` / `withScriptFonts` in the kit's theme/parse.ts, mirrored in
+  tokens.css); CJK is left to fontconfig (Source Han Sans by language).
 - **Recent files** (`recent.rs`, `addRecent(path, mime?)`): parses `$XDG_DATA_HOME/
 recently-used.xbel`, bumps or adds the entry with this app in `bookmark:applications`
   (`exec="'ewe-viewer %u'"`), prunes entries older than 30 days (GTK's default), writes atomically 0600. ewe Browser's Home and GTK dialogs read it.
@@ -123,14 +158,16 @@ src/views/EpubView.tsx      <foliate-view> from src/vendor/foliate-js (MIT, see 
 src/views/ComicView.tsx     pages from the core (comic_list / comic_page → blob URLs, ±6 cached), one page
                             or a spread (cover alone, right-to-left), fit page / width
 src/views/TextView.tsx      ewe Browser's textview: highlight.js core + 24 languages, marked + DOMPurify,
-                            relative images → raw URLs, first 2 MB, Source / Preview, wrap, text size
+                            relative images → raw URLs, first 2 MB, Source / Preview, wrap, text size;
+                            text from the core's /text in any encoding, the toolbar's encoding button
+                            opens Automatic + TEXT_ENCODINGS (the choice remembered per file)
 src/views/DocxView.tsx      docx-preview (pages, zoom, Ctrl+P prints the document itself)
 src/views/SheetView.tsx     SheetJS for xlsx/xlsm/xls/ods (dense sheets), lib/csv.ts for csv/tsv; column
                             letters, frozen header row, one tab per sheet, first 5000 rows
 src/views/ImageView.tsx     fit / actual / zoom at the cursor / drag, pinch (gesture events), rotate,
                             flip, slideshow, ←/→ through the folder (folder_images), info panel (stat +
                             EXIF rows from lib/exif.ts), copy (wl-copy), set as wallpaper (ewe-conf),
-                            move to Trash (GIO), Open with…; HEIC says so plainly when WebKit can't
+                            move to Trash (GIO), Open with…; HEIC/HEIF through the core's /picture
 src/views/OtherView.tsx     ODT / PPTX / DOC…: type, size, GIO apps, "Open with the default app"
 src/views/Start.tsx         recent documents from recently-used.xbel (recent_documents), thumbnails from
                             the core's cache for pictures and pdf.js' first page for PDFs
@@ -157,7 +194,8 @@ Launch flags (all `--key=value`, for the paths on the same command line): `--pag
 `--sidebar=pages|contents`, `--mode=continuous|single|two`, `--zoom=page-width|page-fit|1.5`,
 `--night`, `--present`, `--fill=field=value` (PDF); `--toc`, `--flow=paged|scrolled`,
 `--theme=auto|light|sepia|dark` (books); `--spread` (comics); `--source` (Markdown); `--sheet=N`
-(spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures). They are also how `scripts/shot.sh`
+(spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures); `--encoding=windows-1251` (text:
+read as that, not remembered), `--encoding-menu` (opens the encoding menu). They are also how `scripts/shot.sh`
 reaches every state headless.
 
 ## ewe Files (`apps/files`, binary `ewe-files-app`)
@@ -240,8 +278,9 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
-- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
-  puts a fresh window into that state (used for the screenshots); `--shot-width=900` /
+- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
+  puts a fresh window into that state (used for the screenshots; `quicklook` shows the row a
+  `--select=` picked); `--shot-width=900` /
   `--shot-height=600` size the app root like a smaller window inside cage's fixed 1280×720
   output (all three apps: `applyShotSize` in the kit; the root gets `contain: layout`, so
   dialogs and toasts stay inside it — menus still clamp to the 1280 viewport).
@@ -293,7 +332,8 @@ src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+
 
 - **argv**: files, folders, `.m3u`, `http(s)://` URLs (`Launch.urls`); `--enqueue` appends to the
   running instance instead of replacing; `--scene=<name>` is the screenshot hook (`controls`,
-  `subs-menu`, `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
+  `subs` (the first .srt sidecar on), `subs-menu`, `subs-encoding` (that one on + the Subtitle
+  encoding menu), `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
   `music-now`, `music-playing`), `--shot-width=` as in Files. `$EWE_MUSIC_DIR` overrides the
   music root. Music scenes need `SHOT_WAIT=6` on a fresh home (the first scan).
 - **Narrow windows**: the music nav is a labelled column, an icon rail below 720 (labels as
@@ -428,3 +468,16 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
   (`GST_DEBUG=GST_ELEMENT_FACTORY:4` shows `vah264dec` / `vah265dec` being created).
 - ffmpeg's `gradients` filter writes semi-transparent RGBA PNGs; a test cover that "does not
   show" may just be 35 % opaque — generate covers with `-pix_fmt rgb24`.
+- **`system-ui` is not a fontconfig family on Arch**: WebKitGTK resolves it to whatever
+  fontconfig matches first for the character, and with GNU FreeFont installed (the `ttf-font`
+  provider) that is FreeMono for Arabic — letters unjoined, typewriter-spaced — and FreeSans
+  for Hebrew. Named Noto faces before `system-ui` fix it (`withScriptFonts`); ewe's own
+  fonts.conf only names Georgian and CJK.
+- `text-overflow: ellipsis` follows the direction of the element that clips: `dir="auto"` must
+  sit on that element (wrap a label in its own span when the clipping element is a button or
+  a flex container with an icon — `.fm-crumb-label`), not on an inner span.
+- `heif-dec` writes `out-1.jpg`, `out-2.jpg` … instead of `out.jpg` when a file holds several
+  top-level pictures (bursts): `picture::settle` keeps the first. It decodes AVIF too (dav1d).
+- `chardetng` 1.0 has no confidence score: `confident` = the guess is the same with and without
+  the language hint and decoding had no errors. Give it whole files when you can (`complete`):
+  a prefix must be fed with `last = false` or a cut character counts against the guess.

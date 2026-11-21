@@ -136,6 +136,8 @@ const audioTracksOf = (v: HTMLVideoElement): AudioTrackListLike | undefined =>
   (v as unknown as { audioTracks?: AudioTrackListLike }).audioTracks
 
 const HIDE_AFTER = 2500
+/** a link that loaded nothing in this long is given up on (asked again once, then the page) */
+const STALL_MS = 20_000
 const capital = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)
 const FRAME = 1 / 30
 const SUB_LINE: Record<SubPosition, number | 'auto'> = { bottom: 'auto', raised: 78, top: 8 }
@@ -634,11 +636,29 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   })
   const failure = () => error() ?? linkFailure()
 
+  // --- a stream that never starts -------------------------------------------------------
+  // a stalled first fragment (seen once with YouTube's HLS) leaves the element loading
+  // forever with no error: after STALL_MS with nothing loaded, treat it as a broken load
+  let stallTimer: ReturnType<typeof setTimeout> | null = null
+  const clearStall = () => {
+    if (stallTimer !== null) clearTimeout(stallTimer)
+    stallTimer = null
+  }
+  const watchStall = () => {
+    clearStall()
+    stallTimer = setTimeout(() => {
+      stallTimer = null
+      if (video.readyState === 0 && remote() && failure() === null) void explainError(true)
+    }, STALL_MS)
+  }
+
   // --- errors -------------------------------------------------------------------------
-  const explainError = async () => {
+  /** `stalled`: a link loaded nothing for STALL_MS (no error event ever comes) */
+  const explainError = async (stalled = false) => {
+    clearStall()
     const it = item()
     if (it === undefined || src() === '') return
-    const code = video.error?.code ?? null
+    const code = stalled ? 2 : (video.error?.code ?? null)
     const r = currentLink()
     // a stream from yt-dlp expires (googlevideo after ~6 h): ask for it again, once
     if (it.remote && r?.kind === 'stream' && retriedFor !== it.path) {
@@ -649,6 +669,10 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     }
     setPlaying(false)
     publish({ status: 'stopped' }, true)
+    if (stalled) {
+      video.removeAttribute('src')
+      video.load()
+    }
     setExplaining(true)
     const streams = await probeMedia(it.remote ? (r?.url ?? it.path) : it.path).catch(() => null)
     const known = support() ?? (await mediaSupport())
@@ -880,6 +904,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       if (hideTimer !== null) clearTimeout(hideTimer)
       if (osdTimer !== null) clearTimeout(osdTimer)
       if (pictureTimer !== null) clearTimeout(pictureTimer)
+      clearStall()
       for (const s of subs()) if (s.url !== undefined) URL.revokeObjectURL(s.url)
       void inhibitIdle(false).catch(() => undefined)
       publish({ status: 'stopped' }, true)
@@ -919,6 +944,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     on([src, element], ([url]) => {
       const it = item()
       if (freshElementForLink()) return
+      clearStall()
       setError(null)
       setExplaining(false)
       pickedSub = false
@@ -943,6 +969,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       // setting src starts the load; an extra load() would abort and restart the fetch
       video.src = url
       video.playbackRate = 1
+      if (it?.remote === true) watchStall()
       if (it !== undefined && !it.remote) {
         void addRecent(it.path).catch(() => undefined)
         void subtitleFiles(it.path).then((files) => {
@@ -1321,6 +1348,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
               onPlaying={() => setWaiting(false)}
               onCanPlay={() => setWaiting(false)}
               onLoadedMetadata={() => {
+                clearStall()
                 setDuration(Number.isFinite(video.duration) ? video.duration : 0)
                 collectEmbedded()
                 collectAudio()

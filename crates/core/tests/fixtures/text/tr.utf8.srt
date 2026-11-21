@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:04,500
+Merhaba! Nasılsın?
+
+2
+00:00:05,000 --> 00:00:08,500
+Bugün hava çok soğuk, değil mi?
+
+3
+00:00:09,000 --> 00:00:12,500
+Şu anda nerede olduğunu bilmiyorum.
+
+4
+00:00:13,000 --> 00:00:16,500
+Hadi eve gidelim, artık geç oldu.
+
+5
+00:00:17,000 --> 00:00:20,500
+Her şey için teşekkür ederim, dostum.

@@ -157,6 +157,13 @@
   cursor: default;
 }
 
+.fm-crumb-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fm-crumb:hover {
   background: var(--surface-hover);
   color: var(--text-primary);

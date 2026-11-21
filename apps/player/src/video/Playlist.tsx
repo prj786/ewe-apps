@@ -120,7 +120,7 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                   </span>
                   <button class="pl-name" title={item.path} onClick={() => props.onPlay(i())}>
                     <Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />
-                    <span>{item.remote ? item.name : stemOf(item.name)}</span>
+                    <span dir="auto">{item.remote ? item.name : stemOf(item.name)}</span>
                   </button>
                   <IconButton
                     icon="x"
@@ -161,7 +161,7 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                   </span>
                   <button class="pl-name" title={item.path} onClick={() => addSibling(item)}>
                     <Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />
-                    <span>{stemOf(item.name)}</span>
+                    <span dir="auto">{stemOf(item.name)}</span>
                   </button>
                 </li>
               )}

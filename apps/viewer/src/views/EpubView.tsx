@@ -374,7 +374,9 @@ export function EpubView(props: ViewProps): JSX.Element {
       <Toolbar label="Book" class="view-toolbar">
         <IconButton icon="list-tree" label="Contents (T)" active={showToc()} onClick={toggleToc} />
         <span class="view-title">
-          <span class="view-name">{title() ?? baseName(props.path)}</span>
+          <span class="view-name" dir="auto">
+            {title() ?? baseName(props.path)}
+          </span>
           <span class="view-meta">
             {[author(), progress()].filter((x) => x !== null && x !== '').join(' · ')}
           </span>

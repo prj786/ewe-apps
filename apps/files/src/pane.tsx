@@ -932,7 +932,9 @@ export function Pane(props: PaneProps): JSX.Element {
                         <Show when={crumb().label === 'Home' && i === 0 && tier() !== 'narrow'}>
                           <Icon name="house" size={14} />
                         </Show>
-                        {crumb().label}
+                        <span class="fm-crumb-label" dir="auto">
+                          {crumb().label}
+                        </span>
                       </button>
                     </>
                   )}
@@ -1255,7 +1257,11 @@ export function Pane(props: PaneProps): JSX.Element {
                     <EntryIcon entry={entry()} size={16} grid={false} />
                     <Show
                       when={renaming() === entry().path}
-                      fallback={<span class="fm-name">{entry().name}</span>}
+                      fallback={
+                        <span class="fm-name" dir="auto">
+                          {entry().name}
+                        </span>
+                      }
                     >
                       <NameField entry={entry()} />
                     </Show>
@@ -1268,7 +1274,7 @@ export function Pane(props: PaneProps): JSX.Element {
                     <span class="fm-col fm-col-kind">{KIND_LABEL[fileKind(entry())]}</span>
                   </Show>
                   <Show when={mode() === 'trash'}>
-                    <span class="fm-col fm-col-where" title={entry().original}>
+                    <span class="fm-col fm-col-where" dir="auto" title={entry().original}>
                       {whereOf(entry())}
                     </span>
                     <span class="fm-col fm-col-mtime">{formatDate(entry().deleted ?? 0)}</span>
@@ -1277,7 +1283,7 @@ export function Pane(props: PaneProps): JSX.Element {
                     </span>
                   </Show>
                   <Show when={mode() === 'search'}>
-                    <span class="fm-col fm-col-where" title={entry().path}>
+                    <span class="fm-col fm-col-where" dir="auto" title={entry().path}>
                       {whereOf(entry())}
                     </span>
                     <span class="fm-col fm-col-mtime">{formatDate(entry().mtime)}</span>
@@ -1302,12 +1308,18 @@ export function Pane(props: PaneProps): JSX.Element {
                 <EntryIcon entry={entry()} size={36} grid />
                 <Show
                   when={renaming() === entry().path}
-                  fallback={<span class="fm-name">{entry().name}</span>}
+                  fallback={
+                    <span class="fm-name" dir="auto">
+                      {entry().name}
+                    </span>
+                  }
                 >
                   <NameField entry={entry()} />
                 </Show>
                 <Show when={mode() !== 'folder'}>
-                  <span class="fm-sub">{whereOf(entry())}</span>
+                  <span class="fm-sub" dir="auto">
+                    {whereOf(entry())}
+                  </span>
                 </Show>
               </div>
             </Show>

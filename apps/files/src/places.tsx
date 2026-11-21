@@ -134,7 +134,9 @@ export function Places(props: PlacesProps): JSX.Element {
                   {...(place.path === TRASH_PATH ? {} : props.dropHandlers(() => place.path))}
                 >
                   <Icon name={PLACE_ICON[place.icon]} />
-                  <span class="fm-place-label">{place.label}</span>
+                  <span class="fm-place-label" dir="auto">
+                    {place.label}
+                  </span>
                   <Show when={place.state === 'offline' && place.mount !== undefined}>
                     <span class="fm-place-state">Connect</span>
                   </Show>
@@ -181,7 +183,9 @@ export function Places(props: PlacesProps): JSX.Element {
                     {...(d.path === null ? {} : props.dropHandlers(() => d.path ?? ''))}
                   >
                     <Icon name={d.icon} />
-                    <span class="fm-place-label">{d.label}</span>
+                    <span class="fm-place-label" dir="auto">
+                      {d.label}
+                    </span>
                     <Show when={!d.mounted}>
                       <span class="fm-place-state">Connect</span>
                     </Show>

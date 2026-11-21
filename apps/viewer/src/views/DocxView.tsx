@@ -121,7 +121,9 @@ export function DocxView(props: ViewProps): JSX.Element {
     <div class="dx">
       <Toolbar label="Document" class="view-toolbar">
         <span class="view-title">
-          <span class="view-name">{baseName(props.path)}</span>
+          <span class="view-name" dir="auto">
+            {baseName(props.path)}
+          </span>
           <span class="view-meta">
             {formatBytes(size())}
             {pages() > 0 ? ` · ${pages()} ${pages() === 1 ? 'page' : 'pages'}` : ''}

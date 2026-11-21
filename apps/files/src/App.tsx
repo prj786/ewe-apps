@@ -27,7 +27,9 @@ import {
   isExecutable,
   isFileName,
   parentOf,
+  pictureUrl,
   rawUrl,
+  readText,
   samePlaces,
   syncAction,
   thumbUrl,
@@ -47,6 +49,7 @@ import {
   type ThumbSize,
   type Tools,
   type TrashEntry,
+  type TextFile,
 } from '@ewe/shared'
 import {
   Icon,
@@ -323,6 +326,18 @@ export function App(): JSX.Element {
   const raw = (path: string): string => {
     const s = server()
     return s === null ? '' : rawUrl(s, path)
+  }
+  /** what an <img> shows: the raw file, or a JPEG of a HEIC the core converts */
+  const picture = (path: string): string => {
+    const s = server()
+    return s === null ? '' : pictureUrl(s, path)
+  }
+  /** a text file as UTF-8 whatever it was written in (the core detects the encoding) */
+  const readTextFile = (path: string, max?: number): Promise<TextFile> => {
+    const s = server()
+    return s === null
+      ? Promise.reject(new Error('The media server is not ready'))
+      : readText(s, path, { max })
   }
 
   const say = (text: string, kind: 'info' | 'danger' | 'success' = 'info') => toast(text, { kind })
@@ -1753,6 +1768,8 @@ export function App(): JSX.Element {
           <Preview
             row={previewRow()}
             rawUrl={raw}
+            pictureUrl={picture}
+            readText={readTextFile}
             thumbUrl={thumb}
             onOpen={(r) => void openExternal([r.path])}
             overlay={compact()}
@@ -1785,6 +1802,8 @@ export function App(): JSX.Element {
             items={v().items}
             index={v().index}
             rawUrl={raw}
+            pictureUrl={picture}
+            readText={readTextFile}
             onIndex={(index) => {
               setViewer({ items: v().items, index })
               const current = v().items[index]

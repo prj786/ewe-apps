@@ -12,7 +12,7 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { fileKind, formatBytes, type FsEntry } from '@ewe/shared'
+import { fileKind, formatBytes, type FsEntry, type TextFile } from '@ewe/shared'
 import { Icon, IconButton } from '@ewe/ui'
 import { PdfView } from './pdfview'
 import { TextView } from './textview'
@@ -21,6 +21,9 @@ export interface ViewerProps {
   items: FsEntry[]
   index: number
   rawUrl: (path: string) => string
+  /** pictures: HEIC/HEIF come converted */
+  pictureUrl: (path: string) => string
+  readText: (path: string, max?: number) => Promise<TextFile>
   onIndex: (index: number) => void
   onClose: () => void
   onExternal: (entry: FsEntry) => void
@@ -72,7 +75,7 @@ export function Viewer(props: ViewerProps): JSX.Element {
       const next = props.items[(props.index + delta + count()) % count()]
       if (next !== undefined && fileKind(next) === 'image') {
         const img = new Image()
-        img.src = props.rawUrl(next.path)
+        img.src = props.pictureUrl(next.path)
       }
     }
   }
@@ -83,7 +86,9 @@ export function Viewer(props: ViewerProps): JSX.Element {
         <div class="mv" role="dialog" aria-label={current().name}>
           <header class="mv-top">
             <span class="mv-title">
-              <span class="mv-name">{current().name}</span>
+              <span class="mv-name" dir="auto">
+                {current().name}
+              </span>
               <span class="mv-meta">
                 {count() > 1 ? `${props.index + 1} of ${count()} · ` : ''}
                 {formatBytes(current().size)}
@@ -125,7 +130,7 @@ export function Viewer(props: ViewerProps): JSX.Element {
                 <Match when={kind() === 'image'}>
                   <img
                     class="mv-image"
-                    src={props.rawUrl(current().path)}
+                    src={props.pictureUrl(current().path)}
                     alt={current().name}
                     draggable={false}
                     onLoad={preload}
@@ -146,14 +151,21 @@ export function Viewer(props: ViewerProps): JSX.Element {
                   <PdfView url={props.rawUrl(current().path)} name={current().name} />
                 </Match>
                 <Match when={kind() === 'text' || kind() === 'code'}>
-                  <TextView entry={current()} rawUrl={props.rawUrl} onLink={props.onLink} />
+                  <TextView
+                    entry={current()}
+                    rawUrl={props.rawUrl}
+                    readText={props.readText}
+                    onLink={props.onLink}
+                  />
                 </Match>
                 <Match when={kind() === 'audio'}>
                   <div class="mv-audio">
                     <span class="mv-audio-art">
                       <Icon name="music" size={48} />
                     </span>
-                    <span class="mv-audio-name">{current().name}</span>
+                    <span class="mv-audio-name" dir="auto">
+                      {current().name}
+                    </span>
                     <audio
                       src={props.rawUrl(current().path)}
                       controls

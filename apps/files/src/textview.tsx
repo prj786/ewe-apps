@@ -1,4 +1,5 @@
-// Text, code and Markdown in the quick look (ported from ewe Browser's files page).
+// Text, code and Markdown in the quick look (ported from ewe Browser's files page). The
+// text comes decoded by the core (`/text`): Windows-1251, Shift_JIS, GBK… read right.
 
 import { Match, Show, Switch, createEffect, createResource, createSignal, type JSX } from 'solid-js'
 import DOMPurify from 'dompurify'
@@ -27,7 +28,7 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { marked } from 'marked'
-import { extensionOf, type FsEntry } from '@ewe/shared'
+import { encodingLabel, extensionOf, type FsEntry, type TextFile } from '@ewe/shared'
 import { Icon, Segmented } from '@ewe/ui'
 
 const LANGUAGES = {
@@ -133,20 +134,16 @@ export function resolvePath(dir: string, relative: string): string {
 export function TextView(props: {
   entry: FsEntry
   rawUrl: (path: string) => string
+  readText: (path: string, max?: number) => Promise<TextFile>
   onLink?: ((href: string) => void) | undefined
 }): JSX.Element {
   const isMarkdown = () => ['md', 'markdown'].includes(extensionOf(props.entry.name))
   const [mode, setMode] = createSignal<'preview' | 'source'>('preview')
-  const [text] = createResource(
+  const [file] = createResource(
     () => props.entry.path,
-    async (path) => {
-      const response = await fetch(props.rawUrl(path), {
-        headers: props.entry.size > MAX_BYTES ? { range: `bytes=0-${MAX_BYTES - 1}` } : {},
-      })
-      if (!response.ok) throw new Error(`Could not read ${props.entry.name}`)
-      return response.text()
-    },
+    (path) => props.readText(path, MAX_BYTES),
   )
+  const text = () => file()?.text
 
   const truncated = () => props.entry.size > MAX_BYTES
 
@@ -192,13 +189,13 @@ export function TextView(props: {
   return (
     <div class="tv">
       <Switch>
-        <Match when={text.error !== undefined}>
+        <Match when={file.error !== undefined}>
           <div class="tv-message">
             <Icon name="circle-alert" size={24} />
             <span>Could not read {props.entry.name}</span>
           </div>
         </Match>
-        <Match when={text.loading}>
+        <Match when={file.loading}>
           <div class="tv-message">Loading…</div>
         </Match>
         <Match when={text() !== undefined}>
@@ -235,8 +232,17 @@ export function TextView(props: {
               onClick={onLink}
             />
           </Show>
-          <Show when={truncated()}>
-            <div class="tv-note">Showing the first 2 MB.</div>
+          <Show when={truncated() || (file()?.encoding ?? 'UTF-8') !== 'UTF-8'}>
+            <div class="tv-note">
+              {[
+                truncated() ? 'Showing the first 2 MB.' : '',
+                (file()?.encoding ?? 'UTF-8') === 'UTF-8'
+                  ? ''
+                  : `Read as ${encodingLabel(file()?.encoding ?? '')}.`,
+              ]
+                .filter((t) => t !== '')
+                .join(' ')}
+            </div>
           </Show>
         </Match>
       </Switch>

@@ -2,6 +2,8 @@
 
 import { extensionOf, fileKind } from './files'
 import { baseName } from './files-app'
+import { languageBase, nativeLanguageName } from './languages'
+import { linkHost, type MediaSupport, type ResolvedLink } from './links'
 
 /** What the player can open: a local file (served by the core) or a remote stream. */
 export interface MediaItem {
@@ -11,6 +13,18 @@ export interface MediaItem {
   kind: 'video' | 'audio'
   /** `http(s)://…` streams (HLS included) have no file behind them */
   remote: boolean
+  /** a link's real title (from the site, or an M3U `#EXTINF`), shown instead of `name` */
+  title?: string | undefined
+  /** a link's picture (an http(s) URL) */
+  thumbnail?: string | undefined
+  /** seconds, when the site or the playlist says */
+  duration?: number | undefined
+}
+
+/** What the queue, the header and MPRIS call an item. */
+export function itemTitle(item: MediaItem): string {
+  if (item.title !== undefined && item.title.trim() !== '') return item.title
+  return item.remote ? item.name : stemOf(item.name)
 }
 
 export type RepeatMode = 'off' | 'all' | 'one'
@@ -102,7 +116,9 @@ export function toMediaItem(pathOrUrl: string): MediaItem | null {
     try {
       const u = new URL(url)
       const last = baseName(u.pathname)
-      name = last === '' || last === '/' ? u.host : decodeURIComponent(last)
+      // a file name ("master.m3u8"), else the site: a page's last segment ("watch") says
+      // nothing until the site's title arrives
+      name = last.includes('.') ? decodeURIComponent(last) : linkHost(url)
     } catch {
       name = url
     }
@@ -118,40 +134,46 @@ export function sortMedia(items: MediaItem[]): MediaItem[] {
   return [...items].sort((a, b) => naturalCompare(a.name, b.name))
 }
 
-/** The language of `Movie.en.srt` / `Movie.eng.forced.srt` next to `Movie.mkv`, in words. */
-export function subtitleLabel(subtitlePath: string, videoPath: string): string {
+interface SidecarParts {
+  words: string[]
+  flags: string[]
+  language: string | null
+}
+
+function sidecarParts(subtitlePath: string, videoPath: string): SidecarParts | null {
   const stem = stemOf(baseName(subtitlePath))
   const videoStem = stemOf(baseName(videoPath))
   let rest = stem.startsWith(videoStem) ? stem.slice(videoStem.length) : stem
   rest = rest.replace(/^[\s._-]+/, '')
-  if (rest === '') return `Subtitles (${extensionOf(baseName(subtitlePath)).toUpperCase()})`
+  if (rest === '') return null
   const parts = rest.split(/[._-]/).filter((p) => p !== '')
   const words: string[] = []
-  let flags: string[] = []
+  const flags: string[] = []
+  let language: string | null = null
   for (const part of parts) {
     const lower = part.toLowerCase()
     if (lower === 'forced' || lower === 'sdh' || lower === 'cc') {
       flags.push(lower === 'sdh' || lower === 'cc' ? 'SDH' : 'forced')
       continue
     }
-    const language = languageName(lower)
-    words.push(language ?? part)
+    const name = /^[a-z]{2,3}$/i.test(part) ? nativeLanguageName(lower) : null
+    if (name !== null) language ??= languageBase(lower)
+    words.push(name ?? part)
   }
-  flags = [...new Set(flags)]
-  const label = words.join(' ')
-  return flags.length === 0 ? label : `${label} (${flags.join(', ')})`
+  return { words, flags: [...new Set(flags)], language }
 }
 
-export function languageName(code: string): string | null {
-  if (!/^[a-z]{2,3}$/i.test(code)) return null
-  try {
-    const names = new Intl.DisplayNames(undefined, { type: 'language' })
-    const name = names.of(code.toLowerCase())
-    if (name === undefined || name.toLowerCase() === code.toLowerCase()) return null
-    return name
-  } catch {
-    return null
-  }
+/** The language of `Movie.en.srt` / `Movie.eng.forced.srt` next to `Movie.mkv`, in its own words. */
+export function subtitleLabel(subtitlePath: string, videoPath: string): string {
+  const parts = sidecarParts(subtitlePath, videoPath)
+  if (parts === null) return `Subtitles (${extensionOf(baseName(subtitlePath)).toUpperCase()})`
+  const label = parts.words.join(' ')
+  return parts.flags.length === 0 ? label : `${label} (${parts.flags.join(', ')})`
+}
+
+/** The language code a sidecar's name carries (`Movie.ru.srt` → "ru"), or null. */
+export function subtitleLanguage(subtitlePath: string, videoPath: string): string | null {
+  return sidecarParts(subtitlePath, videoPath)?.language ?? null
 }
 
 /** ffprobe / GStreamer codec ids → plain words and whether gst-libav is the decoder for it. */
@@ -218,33 +240,152 @@ export interface ProbedStream {
   title: string | null
 }
 
-/** The sentence shown when GStreamer refuses a file. */
-export function decodeFailureMessage(
-  name: string,
-  streams: ProbedStream[] | null,
-  mediaErrorCode: number | null,
-): { title: string; detail: string; suggestLibav: boolean } {
-  const media = (streams ?? []).filter((s) => s.kind === 'video' || s.kind === 'audio')
-  if (media.length === 0) {
-    const detail =
-      mediaErrorCode === 2
-        ? 'The file could not be read to the end.'
-        : 'The format of this file is not one GStreamer on this machine understands.'
-    return { title: `Cannot play ${name}`, detail, suggestLibav: true }
+/** What the error page can offer (it drops what this machine cannot do, like mpv). */
+export type FailureAction = 'open-with' | 'browser' | 'mpv' | 'retry'
+
+export type FailureKind =
+  | 'page' // a web page with no video on it
+  | 'needs-ytdlp' // a web page, and yt-dlp is missing
+  | 'drm' // the site locks the video
+  | 'link' // yt-dlp could not get the video (login, region, private…)
+  | 'unplayable' // the site sends it in a form WebKit cannot stream
+  | 'libav' // gst-libav is missing and the codec needs it
+  | 'codec' // the decoder is there and refused
+  | 'network' // the connection or the read broke
+  | 'unknown' // nothing recognises it
+
+export interface PlayFailure {
+  title: string
+  detail: string
+  kind: FailureKind
+  actions: FailureAction[]
+}
+
+export interface FailureFacts {
+  /** the file name, or the video's title */
+  name: string
+  remote: boolean
+  /** ffprobe's streams; null when there was no probe (or it could not run) */
+  streams: ProbedStream[] | null
+  /** HTMLMediaElement error code: 1 aborted, 2 network, 3 decode, 4 not supported */
+  mediaErrorCode: number | null
+  /** null while unknown: nothing is then blamed on a missing package */
+  support: MediaSupport | null
+  /** for links: what the core found behind it */
+  link?: ResolvedLink | null | undefined
+}
+
+export const LIBAV_ADVICE = 'Install it with Komble or `sudo pacman -S gst-libav`.'
+export const YTDLP_ADVICE = 'Install it with Komble or `sudo pacman -S yt-dlp`.'
+
+function linkFailure(facts: FailureFacts, link: ResolvedLink): PlayFailure {
+  const site = link.site ?? 'The site'
+  switch (link.problem) {
+    case 'no-ytdlp':
+      return {
+        title: 'This is a web page, not a video file',
+        detail: `ewe Player gets the video out of a page with yt-dlp, which is not installed. ${YTDLP_ADVICE}`,
+        kind: 'needs-ytdlp',
+        actions: ['browser'],
+      }
+    case 'drm':
+      return {
+        title: 'This video is locked',
+        detail: `${site} protects it with DRM, so it plays only on the site itself.`,
+        kind: 'drm',
+        actions: ['browser'],
+      }
+    case 'unplayable':
+      return {
+        title: `Cannot play ${facts.name}`,
+        detail: `${site} sends this video in a form ewe Player cannot stream.`,
+        kind: 'unplayable',
+        actions: ['mpv', 'browser'],
+      }
+    case 'error':
+      return {
+        title: 'Could not get the video',
+        detail: link.message ?? 'yt-dlp could not read the page.',
+        kind: 'link',
+        actions: ['retry', 'browser'],
+      }
+    default:
+      return {
+        title: 'This is a web page, not a video file',
+        detail: 'ewe Player found no video on it that it can play.',
+        kind: 'page',
+        actions: ['browser'],
+      }
   }
-  const words = media.map((s) => codecWords(s.codec))
-  const list = [...new Set(words.map((w) => w.label))]
-  const joined =
-    list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1) ?? ''}`
-  const suggestLibav = words.some((w) => w.needsLibav)
+}
+
+/** The sentence shown when a file or a link does not play: honest about why. */
+export function decodeFailureMessage(facts: FailureFacts): PlayFailure {
+  const link = facts.link
+  if (facts.remote && link != null && (link.kind === 'page' || link.kind === 'failed'))
+    return linkFailure(facts, link)
+  const title = `Cannot play ${facts.name}`
+  const elsewhere: FailureAction[] = facts.remote ? ['mpv', 'browser'] : ['open-with']
+  const libavMissing = facts.support?.libav === false
+  const what = facts.remote ? 'stream' : 'file'
+  const media = (facts.streams ?? []).filter((s) => s.kind === 'video' || s.kind === 'audio')
+  if (media.length > 0) {
+    const words = media.map((s) => codecWords(s.codec))
+    const list = [...new Set(words.map((w) => w.label))]
+    const joined =
+      list.length <= 1
+        ? (list[0] ?? '')
+        : `${list.slice(0, -1).join(', ')} and ${list.at(-1) ?? ''}`
+    if (libavMissing && words.some((w) => w.needsLibav))
+      return {
+        title,
+        detail: `It uses ${joined}. Decoding it needs gst-libav (FFmpeg codecs for GStreamer), which is not installed. ${LIBAV_ADVICE}`,
+        kind: 'libav',
+        actions: elsewhere,
+      }
+    return {
+      title,
+      detail: `It uses ${joined}. The decoder for it on this machine refused the ${what}.`,
+      kind: 'codec',
+      actions: elsewhere,
+    }
+  }
+  if (facts.mediaErrorCode === 2)
+    return facts.remote
+      ? {
+          title,
+          detail: 'The connection broke while it was loading.',
+          kind: 'network',
+          actions: ['retry', 'browser'],
+        }
+      : {
+          title,
+          detail: 'The file could not be read to the end.',
+          kind: 'network',
+          actions: ['open-with'],
+        }
+  if (libavMissing)
+    return {
+      title,
+      detail: `GStreamer on this machine does not know its format, and gst-libav (FFmpeg codecs for GStreamer), which reads most formats, is not installed. ${LIBAV_ADVICE}`,
+      kind: 'libav',
+      actions: elsewhere,
+    }
+  if (facts.remote)
+    return {
+      title,
+      detail: 'The address did not answer with a video or sound ewe Player can play.',
+      kind: 'unknown',
+      actions: elsewhere,
+    }
   return {
-    title: `Cannot play ${name}`,
-    detail: `It uses ${joined}. ${
-      suggestLibav
-        ? 'Decoding it needs the gst-libav package (FFmpeg codecs for GStreamer).'
-        : 'The decoder for it is missing or refused the file.'
-    }`,
-    suggestLibav,
+    title,
+    detail:
+      facts.streams === null
+        ? 'GStreamer on this machine could not open it.'
+        : 'Neither GStreamer nor FFmpeg on this machine recognise its format: it may be damaged, or not a video at all.',
+    kind: 'unknown',
+    actions: elsewhere,
   }
 }
 

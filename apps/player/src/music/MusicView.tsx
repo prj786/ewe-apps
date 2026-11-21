@@ -43,7 +43,14 @@ import {
   type MenuEntry,
 } from '@ewe/ui'
 import { AudioEngine } from '../audio'
-import { coverArtFile, launchWith, probeMedia, type Library, type Transport } from '../bridge'
+import {
+  coverArtFile,
+  launchWith,
+  mediaSupport,
+  probeMedia,
+  type Library,
+  type Transport,
+} from '../bridge'
 import { publish } from '../mpris'
 import type { MusicPrefs, MusicView as MainView } from '../store'
 import './music.css'
@@ -145,13 +152,19 @@ export function MusicView(props: MusicViewProps): JSX.Element {
       publish({ status: 'stopped' }, true)
       if (t === undefined) return
       setError(`Cannot play ${t.title}`)
-      void probeMedia(t.path)
-        .catch(() => null)
-        .then((streams) => {
-          const msg = decodeFailureMessage(t.title, streams, code)
+      void Promise.all([probeMedia(t.path).catch(() => null), mediaSupport()]).then(
+        ([streams, support]) => {
+          const msg = decodeFailureMessage({
+            name: t.title,
+            remote: false,
+            streams,
+            mediaErrorCode: code,
+            support,
+          })
           setError(msg.detail)
           toast(`${msg.title}. ${msg.detail}`, { kind: 'danger', duration: 8000 })
-        })
+        },
+      )
     },
   })
 

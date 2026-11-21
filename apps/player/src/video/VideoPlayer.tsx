@@ -11,21 +11,40 @@ import {
 } from 'solid-js'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import {
+  LINK_TTL_MS,
   MAX_VOLUME,
   SPEEDS,
   clampVolume,
   codecWords,
   decodeFailureMessage,
+  directLink,
+  failedLink,
   formatClock,
   formatSpeed,
+  isDirectMediaUrl,
+  isWebUrl,
+  itemTitle,
+  languageBase,
+  linkHost,
+  nativeLanguageName,
   nextIndex,
+  preferredTrack,
   previousIndex,
   rawUrl,
-  stemOf,
   stepSpeed,
   subtitleLabel,
+  subtitleLanguage,
+  systemLanguage,
+  trackLabel,
+  wantedLanguage,
+  wantsSubtitles,
+  type FailureAction,
+  type LanguagePreference,
   type MediaItem,
   type MediaServer,
+  type MediaSupport,
+  type PlayFailure,
+  type ResolvedLink,
   type SavedPosition,
 } from '@ewe/shared'
 import {
@@ -37,12 +56,17 @@ import {
   Segmented,
   addRecent,
   toast,
+  type IconName,
   type MenuEntry,
 } from '@ewe/ui'
 import {
   inhibitIdle,
   launchWith,
+  mediaSupport,
+  openInBrowser,
+  openInMpv,
   probeMedia,
+  resolveLink,
   screenshotFrame,
   subtitleFiles,
   subtitleVtt,
@@ -70,6 +94,10 @@ export interface VideoPlayerProps {
   onMini(on: boolean): void
   onIndex(index: number): void
   onQueue(queue: MediaItem[], index: number): void
+  /** what a link turned out to be (its title, picture, length) for the queue */
+  onItem(path: string, patch: Partial<MediaItem>): void
+  /** a link that was a playlist: these items take its place */
+  onExpand(path: string, items: MediaItem[]): void
   onAddFiles(): void
   onAddFolder(): void
   onOpenUrl(): void
@@ -83,6 +111,8 @@ interface SubTrack {
   id: string
   label: string
   kind: 'embedded' | 'file'
+  /** base language code, when the track or the file name says */
+  language: string | null
   /** file tracks: the source path (for the menu) and the blob URL of its VTT */
   path?: string
   url?: string
@@ -123,14 +153,36 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   let resumeFor: string | null = null
 
   const item = () => props.queue[props.index]
+  const remote = () => item()?.remote === true
+
+  // --- links: a web page becomes a stream through the core (yt-dlp) -------------------
+  const [support, setSupport] = createSignal<MediaSupport | null>(null)
+  const [link, setLink] = createSignal<{ path: string; link: ResolvedLink } | null>(null)
+  /** the link being asked about ("Getting the video…") */
+  const [resolving, setResolving] = createSignal<string | null>(null)
+  const linkCache = new Map<string, { link: ResolvedLink; at: number }>()
+  /** a stream that failed is asked for again once (its URL may have expired) */
+  let retriedFor: string | null = null
+  const currentLink = (): ResolvedLink | null => {
+    const it = item()
+    const r = link()
+    return it !== undefined && it.remote && r !== null && r.path === it.path ? r.link : null
+  }
+  const remotePath = createMemo(() => {
+    const it = item()
+    return it?.remote === true ? it.path : null
+  })
+
   const src = createMemo(() => {
     const it = item()
     if (it === undefined) return ''
-    return it.remote ? it.path : rawUrl(props.server, it.path)
+    if (!it.remote) return rawUrl(props.server, it.path)
+    const r = currentLink()
+    return r !== null && (r.kind === 'direct' || r.kind === 'stream') ? r.url : ''
   })
   const title = () => {
     const it = item()
-    return it === undefined ? '' : it.remote ? it.name : stemOf(it.name)
+    return it === undefined ? '' : itemTitle(it)
   }
 
   const [playing, setPlaying] = createSignal(false)
@@ -148,11 +200,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   const [activeAudio, setActiveAudio] = createSignal<string | null>(null)
   const [rotation, setRotation] = createSignal(0)
   const [stageSize, setStageSize] = createSignal({ w: 0, h: 0 })
-  const [error, setError] = createSignal<{
-    title: string
-    detail: string
-    suggestLibav: boolean
-  } | null>(null)
+  const [error, setError] = createSignal<PlayFailure | null>(null)
+  /** ffprobe is looking at what failed (the error page follows) */
+  const [explaining, setExplaining] = createSignal(false)
   const [osd, setOsd] = createSignal<string | null>(null)
   const [resume, setResume] = createSignal<SavedPosition | null>(null)
   /** sound plays but there is no picture: the video codec is missing */
@@ -187,9 +237,12 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   }
 
   // --- volume: the element up to 100 %, a gain node above that -------------------------
+  // Only for the loopback server's files: a link plays without CORS (CDNs send no
+  // Access-Control-Allow-Origin and a crossorigin <video> refuses them), and Web Audio
+  // turns a cross-origin source into silence — links stop at 100 %.
   const applyVolume = () => {
     const v = muted() ? 0 : volume()
-    if (v > 1 || gain !== null) {
+    if (!remote() && (v > 1 || gain !== null)) {
       if (gain === null) {
         try {
           audioContext ??= new AudioContext()
@@ -285,6 +338,90 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     },
   }
 
+  // --- the element: a fresh one when a link follows a boosted file -------------------
+  // once Web Audio captured an element it plays only through the gain node, which would be
+  // silent for a link; a new <video> is the only way back to the plain output
+  const [element, setElement] = createSignal(0)
+  let unbindVideo: (() => void) | null = null
+  const bindVideo = (el: HTMLVideoElement) => {
+    unbindVideo?.()
+    const tracks = el.textTracks
+    const onTracks = () => collectEmbedded()
+    tracks.addEventListener('addtrack', onTracks)
+    tracks.addEventListener('removetrack', onTracks)
+    // WebKit's own automatic caption selection runs when tracks arrive and may flip a
+    // track we turned on back off: whatever changed a mode, ours is the one that counts
+    const onModes = () => applySubs()
+    tracks.addEventListener('change', onModes)
+    const audio = audioTracksOf(el)
+    const onAudio = () => collectAudio()
+    audio?.addEventListener('addtrack', onAudio)
+    audio?.addEventListener('removetrack', onAudio)
+    unbindVideo = () => {
+      tracks.removeEventListener('addtrack', onTracks)
+      tracks.removeEventListener('removetrack', onTracks)
+      tracks.removeEventListener('change', onModes)
+      audio?.removeEventListener('addtrack', onAudio)
+      audio?.removeEventListener('removetrack', onAudio)
+    }
+  }
+  /** true when the element had to be replaced (the caller waits for the new one) */
+  const freshElementForLink = (): boolean => {
+    if (!remote() || gain === null) return false
+    gain.disconnect()
+    gain = null
+    video.pause()
+    video.removeAttribute('src')
+    video.load()
+    setElement((n) => n + 1)
+    return true
+  }
+
+  // --- languages ------------------------------------------------------------------------
+  const system = systemLanguage(
+    navigator.languages.length > 0 ? navigator.languages : [navigator.language],
+  )
+  /** the user chose a track by hand for this item: no more automatic picks */
+  let pickedSub = false
+  let pickedAudio = false
+  const spokenLanguage = (): string | null => {
+    const list = audioTracks()
+    const on = list.find((t) => t.id === activeAudio()) ?? list[0]
+    return on === undefined ? null : languageBase(on.language)
+  }
+  const autoSubs = () => {
+    if (pickedSub) return
+    const wanted = wantedLanguage(props.prefs.subtitleLanguage, system)
+    if (!wantsSubtitles(wanted, spokenLanguage())) {
+      if (activeSub() !== null) {
+        setActiveSub(null)
+        applySubs()
+      }
+      return
+    }
+    const list = subs()
+    // in the wanted language, else a sidecar that names no language (Movie.srt is the
+    // film's own subtitles — what mpv shows too)
+    const pick =
+      preferredTrack(list, (t) => t.language, wanted) ??
+      list.find((t) => t.kind === 'file' && t.language === null)
+    if (pick !== undefined && pick.id !== activeSub()) {
+      setActiveSub(pick.id)
+      applySubs()
+    }
+  }
+  const autoAudio = () => {
+    if (pickedAudio) return
+    const list = audioTracks()
+    if (list.length < 2) return
+    const pick = preferredTrack(
+      list,
+      (t) => t.language,
+      wantedLanguage(props.prefs.audioLanguage, system),
+    )
+    if (pick !== undefined && pick.id !== activeAudio()) chooseAudio(pick.id, true)
+  }
+
   // --- subtitles ----------------------------------------------------------------------
   const applySubs = () => {
     const active = activeSub()
@@ -294,7 +431,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       if (t === undefined) continue
       const id = t.id !== '' ? t.id : `embedded-${i}`
       const on = active !== null && id === active
-      t.mode = on ? 'showing' : 'disabled'
+      const mode = on ? 'showing' : 'disabled'
+      // only real changes: a mode write fires `change`, which comes back here
+      if (t.mode !== mode) t.mode = mode
       if (on) positionCues(t)
     }
   }
@@ -325,30 +464,35 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       if (t.id.startsWith('file-')) continue
       found.push({
         id: t.id !== '' ? t.id : `embedded-${i}`,
-        label: t.label || (t.language !== '' ? t.language : `Track ${found.length + 1}`),
+        label: trackLabel({ language: t.language, label: t.label }, found.length, 'Subtitles'),
         kind: 'embedded',
+        language: languageBase(t.language),
       })
     }
     setSubs((prev) => [...found, ...prev.filter((s) => s.kind === 'file')])
+    autoSubs()
   }
 
   const addSubtitleFile = async (path: string, show: boolean) => {
     const it = item()
     try {
       const vtt = await subtitleVtt(path)
+      if (item()?.path !== it?.path) return
       const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
       const track: SubTrack = {
         id: `file-${subs().length}-${Date.now()}`,
         label: subtitleLabel(path, it?.path ?? ''),
         kind: 'file',
+        language: subtitleLanguage(path, it?.path ?? ''),
         path,
         url,
       }
       setSubs((prev) => [...prev, track])
       if (show) {
+        pickedSub = true
         setActiveSub(track.id)
         queueMicrotask(applySubs)
-      }
+      } else queueMicrotask(autoSubs)
     } catch (e) {
       toast(`Could not read ${path.slice(path.lastIndexOf('/') + 1)}: ${String(e)}`, {
         kind: 'danger',
@@ -374,6 +518,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     const cur = activeSub()
     const i = list.findIndex((s) => s.id === cur)
     const nextTrack = i + 1 >= list.length ? null : list[i + 1]
+    pickedSub = true
     setActiveSub(nextTrack?.id ?? null)
     applySubs()
     flash(nextTrack === null || nextTrack === undefined ? 'Subtitles off' : nextTrack.label)
@@ -395,8 +540,10 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     }
     setAudioTracks(out)
     setActiveAudio(out.find((t) => t.enabled)?.id ?? out[0]?.id ?? null)
+    autoAudio()
+    autoSubs()
   }
-  const chooseAudio = (id: string) => {
+  const chooseAudio = (id: string, quiet = false) => {
     const list = audioTracksOf(video)
     if (list === undefined) return
     // AudioTrackList is not iterable
@@ -406,29 +553,160 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       if (t !== undefined) t.enabled = t.id === id
     }
     setActiveAudio(id)
+    if (quiet) return
     const picked = audioTracks().find((t) => t.id === id)
     flash(picked === undefined ? 'Audio track' : audioLabel(picked, audioTracks().indexOf(picked)))
   }
   const audioLabel = (t: AudioTrackLike, i: number) =>
-    t.label || (t.language !== '' ? t.language : `Audio ${i + 1}`)
+    trackLabel({ language: t.language, label: t.label }, i, 'Audio')
+
+  // --- links ----------------------------------------------------------------------------
+  const useLink = (url: string, r: ResolvedLink) => {
+    if (r.kind === 'playlist' && r.entries.length > 0) {
+      props.onExpand(
+        url,
+        r.entries.map((e) => ({
+          path: e.url,
+          name: linkHost(e.url),
+          kind: 'video' as const,
+          remote: true,
+          title: e.title ?? undefined,
+          duration: e.duration ?? undefined,
+        })),
+      )
+      return
+    }
+    setLink({ path: url, link: r })
+    const patch: Partial<MediaItem> = {}
+    if (r.title !== null) patch.title = r.title
+    if (r.thumbnail !== null) patch.thumbnail = r.thumbnail
+    if (r.duration !== null) patch.duration = r.duration
+    if (Object.keys(patch).length > 0) props.onItem(url, patch)
+  }
+
+  const resolve = async (url: string, fresh: boolean) => {
+    const cached = linkCache.get(url)
+    if (!fresh && cached !== undefined && Date.now() - cached.at < LINK_TTL_MS) {
+      useLink(url, cached.link)
+      return
+    }
+    setLink(null)
+    if (isDirectMediaUrl(url)) {
+      useLink(url, directLink(url, /\.m3u8($|\?)/i.test(url) ? 'hls' : 'file'))
+      return
+    }
+    setResolving(url)
+    let r: ResolvedLink
+    try {
+      r = await resolveLink(url)
+    } catch (e) {
+      r = failedLink(url, String(e))
+    }
+    if (resolving() === url) setResolving(null)
+    if (r.kind !== 'failed') linkCache.set(url, { link: r, at: Date.now() })
+    if (item()?.path !== url) return
+    useLink(url, r)
+  }
+
+  const retry = () => {
+    const it = item()
+    if (it === undefined) return
+    setError(null)
+    retriedFor = null
+    if (it.remote) {
+      linkCache.delete(it.path)
+      void resolve(it.path, true)
+    } else video.load()
+  }
+
+  /** the page behind a link that failed (a page of its own, or a stream yt-dlp found) */
+  const linkFailure = createMemo((): PlayFailure | null => {
+    const r = currentLink()
+    if (r === null || (r.kind !== 'page' && r.kind !== 'failed')) return null
+    return decodeFailureMessage({
+      name: title(),
+      remote: true,
+      streams: null,
+      mediaErrorCode: null,
+      support: support(),
+      link: r,
+    })
+  })
+  const failure = () => error() ?? linkFailure()
 
   // --- errors -------------------------------------------------------------------------
   const explainError = async () => {
     const it = item()
-    if (it === undefined) return
+    if (it === undefined || src() === '') return
     const code = video.error?.code ?? null
-    let streams = null
-    if (!it.remote) {
-      try {
-        streams = await probeMedia(it.path)
-      } catch {
-        streams = null
-      }
+    const r = currentLink()
+    // a stream from yt-dlp expires (googlevideo after ~6 h): ask for it again, once
+    if (it.remote && r?.kind === 'stream' && retriedFor !== it.path) {
+      retriedFor = it.path
+      linkCache.delete(it.path)
+      void resolve(it.path, true)
+      return
     }
-    setError(decodeFailureMessage(it.name, streams, code))
     setPlaying(false)
     publish({ status: 'stopped' }, true)
+    setExplaining(true)
+    const streams = await probeMedia(it.remote ? (r?.url ?? it.path) : it.path).catch(() => null)
+    const known = support() ?? (await mediaSupport())
+    setExplaining(false)
+    if (item()?.path !== it.path) return
+    setError(
+      decodeFailureMessage({
+        name: it.remote ? title() : it.name,
+        remote: it.remote,
+        streams,
+        mediaErrorCode: code,
+        support: known,
+        link: r,
+      }),
+    )
   }
+
+  const runAction = (action: FailureAction) => {
+    const it = item()
+    if (it === undefined) return
+    const fail = (what: string) => (e: unknown) =>
+      toast(`Could not open ${what}: ${String(e)}`, { kind: 'danger' })
+    switch (action) {
+      case 'open-with':
+        void launchWith(null, [it.path]).catch(fail('it'))
+        break
+      case 'browser':
+        void openInBrowser(it.path).catch(fail('ewe Browser'))
+        break
+      case 'mpv':
+        void openInMpv(it.path)
+          .then(() => pause())
+          .catch(fail('mpv'))
+        break
+      case 'retry':
+        retry()
+        break
+    }
+  }
+  const actionButton = (action: FailureAction): { label: string; icon: IconName } | null => {
+    const it = item()
+    if (it === undefined) return null
+    switch (action) {
+      case 'open-with':
+        return it.remote ? null : { label: 'Open with another app', icon: 'external-link' }
+      case 'browser':
+        return isWebUrl(it.path) ? { label: 'Open in ewe Browser', icon: 'globe' } : null
+      case 'mpv':
+        return support()?.mpv === true ? { label: 'Open in mpv', icon: 'film' } : null
+      case 'retry':
+        return { label: 'Try again', icon: 'rotate-cw' }
+    }
+  }
+  const failureActions = () =>
+    (failure()?.actions ?? []).flatMap((a) => {
+      const b = actionButton(a)
+      return b === null ? [] : [{ action: a, ...b }]
+    })
 
   // --- screenshot ---------------------------------------------------------------------
   const screenshot = async () => {
@@ -455,14 +733,16 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       pictureTimer = null
       const it = item()
       if (it === undefined || it.remote || video.paused || video.videoWidth > 0) return
-      void probeMedia(it.path).then((streams) => {
+      void Promise.all([probeMedia(it.path), mediaSupport()]).then(([streams, known]) => {
         if (item()?.path !== it.path || video.videoWidth > 0) return
         const v = streams.find((s) => s.kind === 'video')
         if (v === undefined) return
         const words = codecWords(v.codec)
         setNoPicture(
           `No picture: the video is ${words.label}${
-            words.needsLibav ? ', which needs gst-libav' : ' and its decoder refused it'
+            words.needsLibav && !known.libav
+              ? ', which needs gst-libav (not installed)'
+              : ' and its decoder refused it'
           }. Playing the sound only.`,
         )
       })
@@ -476,6 +756,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       setTimeout(() => {
         const srt = subs().find((s) => s.path?.toLowerCase().endsWith('.srt'))
         if (srt !== undefined) {
+          pickedSub = true
           setActiveSub(srt.id)
           applySubs()
         }
@@ -588,24 +869,14 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       setStageSize({ w: r.width, h: r.height })
     })
     observer.observe(stage)
-    const tracks = video.textTracks
-    const onTracks = () => collectEmbedded()
-    tracks.addEventListener('addtrack', onTracks)
-    tracks.addEventListener('removetrack', onTracks)
-    const audio = audioTracksOf(video)
-    const onAudio = () => collectAudio()
-    audio?.addEventListener('addtrack', onAudio)
-    audio?.addEventListener('removetrack', onAudio)
+    void mediaSupport().then(setSupport)
     applyVolume()
     poke()
     onCleanup(() => {
       props.onTransport(null)
       window.removeEventListener('keydown', onKey)
       observer.disconnect()
-      tracks.removeEventListener('addtrack', onTracks)
-      tracks.removeEventListener('removetrack', onTracks)
-      audio?.removeEventListener('addtrack', onAudio)
-      audio?.removeEventListener('removetrack', onAudio)
+      unbindVideo?.()
       if (hideTimer !== null) clearTimeout(hideTimer)
       if (osdTimer !== null) clearTimeout(osdTimer)
       if (pictureTimer !== null) clearTimeout(pictureTimer)
@@ -615,11 +886,43 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
     })
   })
 
+  const publishMeta = () => {
+    const it = item()
+    const d = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
+    publish({
+      metadata: {
+        id: `${props.index}:${it?.path ?? ''}`,
+        title: title(),
+        url: it?.path ?? null,
+        length: d ?? it?.duration ?? null,
+        artUrl: it?.remote === true ? (it.thumbnail ?? null) : null,
+      },
+    })
+  }
+
+  // a link: ask the core what to play (a web page through yt-dlp) when it becomes current
+  createEffect(
+    on(remotePath, (url) => {
+      retriedFor = null
+      if (url === null) {
+        setResolving(null)
+        return
+      }
+      void resolve(url, false)
+    }),
+  )
+  // the site's title arrives after the link was opened
+  createEffect(on(title, () => publishMeta(), { defer: true }))
+
   // a new file
   createEffect(
-    on(src, (url) => {
+    on([src, element], ([url]) => {
       const it = item()
+      if (freshElementForLink()) return
       setError(null)
+      setExplaining(false)
+      pickedSub = false
+      pickedAudio = false
       setResume(null)
       setNoPicture(null)
       setTime(0)
@@ -644,24 +947,12 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         void addRecent(it.path).catch(() => undefined)
         void subtitleFiles(it.path).then((files) => {
           if (item()?.path !== it.path) return
-          // the first matching sidecar shows right away (what mpv does)
-          files.forEach((f, i) => void addSubtitleFile(f, i === 0))
+          // which one shows (if any) is the preferred-language rule's call (autoSubs)
+          files.forEach((f) => void addSubtitleFile(f, false))
         })
       }
-      publish(
-        {
-          metadata: {
-            id: `${props.index}:${it?.path ?? ''}`,
-            title: title(),
-            url: it?.path ?? null,
-            length: null,
-          },
-          canNext: canNext(),
-          canPrevious: canPrevious(),
-          position: 0,
-        },
-        true,
-      )
+      publish({ canNext: canNext(), canPrevious: canPrevious(), position: 0 }, true)
+      publishMeta()
     }),
   )
 
@@ -707,6 +998,69 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   const narrowBar = () => !props.mini && stageSize().w > 0 && stageSize().w < 560
 
   const check = (on: boolean) => (on ? ('check' as const) : undefined)
+  /** "Preferred language": automatic (the system's), off (subtitles), the file's languages */
+  const languageChoices = (
+    current: LanguagePreference,
+    found: (string | null)[],
+    allowOff: boolean,
+    apply: (value: LanguagePreference) => void,
+  ): MenuEntry[] => {
+    const codes = [...new Set([...found, current].map((c) => languageBase(c)))].filter(
+      (c): c is string => c !== null && c !== system,
+    )
+    const entry = (value: LanguagePreference, label: string): MenuEntry => ({
+      type: 'item',
+      id: `lang-${value}`,
+      label,
+      icon: check(current === value),
+      run: () => apply(value),
+    })
+    return [
+      entry('auto', `${nativeLanguageName(system) ?? system} (system)`),
+      ...(allowOff ? [entry('off', 'Off')] : []),
+      ...codes
+        .map((c) => ({ c, name: nativeLanguageName(c) ?? c }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(({ c, name }) => entry(c, name)),
+    ]
+  }
+  const pickAudioLanguage = (v: LanguagePreference) => {
+    props.onPrefs({ audioLanguage: v })
+    pickedAudio = false
+    queueMicrotask(autoAudio)
+  }
+  const pickSubtitleLanguage = (v: LanguagePreference) => {
+    props.onPrefs({ subtitleLanguage: v })
+    pickedSub = false
+    queueMicrotask(autoSubs)
+  }
+  const audioItems = (): MenuEntry[] => [
+    ...(audioTracks().length === 0
+      ? [{ type: 'item', id: 'none', label: 'Only one audio track', disabled: true } as const]
+      : audioTracks().map((t, i): MenuEntry => ({
+          type: 'item',
+          id: t.id,
+          label: audioLabel(t, i),
+          icon: check(activeAudio() === t.id),
+          run: () => {
+            pickedAudio = true
+            chooseAudio(t.id)
+          },
+        }))),
+    { type: 'separator' },
+    {
+      type: 'item',
+      id: 'audio-language',
+      label: 'Preferred language',
+      icon: 'languages',
+      items: languageChoices(
+        props.prefs.audioLanguage,
+        audioTracks().map((t) => t.language),
+        false,
+        pickAudioLanguage,
+      ),
+    },
+  ]
   const menuItems = (): MenuEntry[] => {
     const m = menu()
     return m === null ? [] : itemsFor(m.kind)
@@ -732,6 +1086,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             label: 'Off',
             icon: check(activeSub() === null),
             run: () => {
+              pickedSub = true
               setActiveSub(null)
               applySubs()
             },
@@ -743,11 +1098,24 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             hint: s.kind === 'embedded' ? 'in the file' : undefined,
             icon: check(activeSub() === s.id),
             run: () => {
+              pickedSub = true
               setActiveSub(s.id)
               applySubs()
             },
           })),
           { type: 'separator' },
+          {
+            type: 'item',
+            id: 'sub-language',
+            label: 'Preferred language',
+            icon: 'languages',
+            items: languageChoices(
+              props.prefs.subtitleLanguage,
+              list.map((s) => s.language),
+              true,
+              pickSubtitleLanguage,
+            ),
+          },
           {
             type: 'item',
             id: 'load',
@@ -782,15 +1150,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         ]
       }
       case 'audio':
-        return audioTracks().length === 0
-          ? [{ type: 'item', id: 'none', label: 'Only one audio track', disabled: true }]
-          : audioTracks().map((t, i) => ({
-              type: 'item',
-              id: t.id,
-              label: audioLabel(t, i),
-              icon: check(activeAudio() === t.id),
-              run: () => chooseAudio(t.id),
-            }))
+        return audioItems()
       case 'view':
         return [
           {
@@ -889,23 +1249,10 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             id: 'audio',
             label: 'Audio track',
             icon: 'languages',
-            items: menuItemsFor('audio'),
+            items: audioItems(),
           },
         ]
     }
-  }
-  const menuItemsFor = (kind: 'audio'): MenuEntry[] => {
-    if (kind === 'audio')
-      return audioTracks().length === 0
-        ? [{ type: 'item', id: 'none', label: 'Only one audio track', disabled: true }]
-        : audioTracks().map((t, i) => ({
-            type: 'item',
-            id: t.id,
-            label: audioLabel(t, i),
-            icon: check(activeAudio() === t.id),
-            run: () => chooseAudio(t.id),
-          }))
-    return []
   }
   const openMenu = (kind: MenuKind, e: MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -923,6 +1270,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       classList={{
         'controls-hidden': !visible() && playing(),
         [`sub-${props.prefs.subSize}`]: true,
+        'cue-bottom': props.prefs.subPosition === 'bottom',
         mini: props.mini,
         narrow: narrowBar(),
       }}
@@ -944,112 +1292,114 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           if (e.deltaY !== 0) setVolume(volume() + (e.deltaY < 0 ? 0.05 : -0.05))
         }}
       >
-        <video
-          ref={video}
-          class="vp-video"
-          crossorigin="anonymous"
-          preload="auto"
-          autoplay={props.autoplay}
-          playsinline
-          style={videoStyle()}
-          onPlay={() => {
-            setPlaying(true)
-            publish({ status: 'playing', position: video.currentTime }, true)
-            poke()
-            checkPicture()
-          }}
-          onPause={() => {
-            setPlaying(false)
-            setVisible(true)
-            publish({ status: 'paused', position: video.currentTime }, true)
-          }}
-          onWaiting={() => setWaiting(true)}
-          onPlaying={() => setWaiting(false)}
-          onCanPlay={() => setWaiting(false)}
-          onLoadedMetadata={() => {
-            setDuration(Number.isFinite(video.duration) ? video.duration : 0)
-            collectEmbedded()
-            collectAudio()
-            applyVolume()
-            publish({
-              metadata: {
-                id: `${props.index}:${item()?.path ?? ''}`,
-                title: title(),
-                url: item()?.path ?? null,
-                length: Number.isFinite(video.duration) ? video.duration : null,
-              },
-            })
-            const path = resumeFor
-            resumeFor = null
-            if (props.scene !== null) applyScene(props.scene)
-            const saved = path === null ? undefined : props.positions[path]
-            if (saved !== undefined && saved.position < video.duration - 5) {
-              video.currentTime = saved.position
-              setResume(saved)
-              setTimeout(() => setResume(null), 8000)
-            }
-          }}
-          onDurationChange={() => {
-            if (Number.isFinite(video.duration)) setDuration(video.duration)
-          }}
-          onTimeUpdate={() => {
-            const t = video.currentTime
-            setTime(t)
-            const now = Date.now()
-            if (now - lastSaved > 5000) {
-              lastSaved = now
-              const it = item()
-              if (it !== undefined && !it.remote) props.onPosition(it.path, t, video.duration)
-            }
-            if (now - lastPublished > 1000) {
-              lastPublished = now
-              publish({ position: t })
-            }
-          }}
-          onProgress={() => {
-            const b = video.buffered
-            const out: [number, number][] = []
-            for (let i = 0; i < b.length; i++) out.push([b.start(i), b.end(i)])
-            setBuffered(out)
-          }}
-          onEnded={() => {
-            const it = item()
-            if (it !== undefined && !it.remote)
-              props.onPosition(it.path, video.duration, video.duration)
-            next(false)
-          }}
-          onError={() => void explainError()}
-          onRateChange={() => setSpeed(video.playbackRate)}
-        >
-          <For each={subs().filter((s) => s.kind === 'file')}>
-            {(s) => <track id={s.id} kind="subtitles" label={s.label} src={s.url} />}
-          </For>
-        </video>
+        <For each={[element()]}>
+          {() => (
+            <video
+              ref={(el) => {
+                video = el
+                bindVideo(el)
+              }}
+              class="vp-video"
+              // the loopback server answers CORS (Web Audio, frame grabs); links' CDNs do not
+              crossorigin={remote() ? undefined : 'anonymous'}
+              preload="auto"
+              autoplay={props.autoplay}
+              playsinline
+              style={videoStyle()}
+              onPlay={() => {
+                setPlaying(true)
+                publish({ status: 'playing', position: video.currentTime }, true)
+                poke()
+                checkPicture()
+              }}
+              onPause={() => {
+                setPlaying(false)
+                setVisible(true)
+                publish({ status: 'paused', position: video.currentTime }, true)
+              }}
+              onWaiting={() => setWaiting(true)}
+              onPlaying={() => setWaiting(false)}
+              onCanPlay={() => setWaiting(false)}
+              onLoadedMetadata={() => {
+                setDuration(Number.isFinite(video.duration) ? video.duration : 0)
+                collectEmbedded()
+                collectAudio()
+                applyVolume()
+                publishMeta()
+                const path = resumeFor
+                resumeFor = null
+                if (props.scene !== null) applyScene(props.scene)
+                const saved = path === null ? undefined : props.positions[path]
+                if (saved !== undefined && saved.position < video.duration - 5) {
+                  video.currentTime = saved.position
+                  setResume(saved)
+                  setTimeout(() => setResume(null), 8000)
+                }
+              }}
+              onDurationChange={() => {
+                if (Number.isFinite(video.duration)) setDuration(video.duration)
+              }}
+              onTimeUpdate={() => {
+                const t = video.currentTime
+                setTime(t)
+                const now = Date.now()
+                if (now - lastSaved > 5000) {
+                  lastSaved = now
+                  const it = item()
+                  if (it !== undefined && !it.remote) props.onPosition(it.path, t, video.duration)
+                }
+                if (now - lastPublished > 1000) {
+                  lastPublished = now
+                  publish({ position: t })
+                }
+              }}
+              onProgress={() => {
+                const b = video.buffered
+                const out: [number, number][] = []
+                for (let i = 0; i < b.length; i++) out.push([b.start(i), b.end(i)])
+                setBuffered(out)
+              }}
+              onEnded={() => {
+                const it = item()
+                if (it !== undefined && !it.remote)
+                  props.onPosition(it.path, video.duration, video.duration)
+                next(false)
+              }}
+              onError={() => void explainError()}
+              onRateChange={() => setSpeed(video.playbackRate)}
+            >
+              <For each={subs().filter((s) => s.kind === 'file')}>
+                {(s) => <track id={s.id} kind="subtitles" label={s.label} src={s.url} />}
+              </For>
+            </video>
+          )}
+        </For>
 
-        <Show when={error()}>
+        <Show when={failure()}>
           {(err) => (
             <div class="vp-error">
-              <EmptyState icon="circle-alert" title={err().title} warning heading="h2">
+              <EmptyState
+                icon={
+                  err().kind === 'page' || err().kind === 'needs-ytdlp' ? 'globe' : 'circle-alert'
+                }
+                title={err().title}
+                warning
+                heading="h2"
+              >
                 {err().detail}
-                <Show when={err().suggestLibav}>
-                  {' '}
-                  On ewe it comes with the next update; until then install it with Komble or `sudo
-                  pacman -S gst-libav`.
-                </Show>
               </EmptyState>
               <div class="vp-error-actions">
-                <Show when={!(item()?.remote ?? true)}>
-                  <Button
-                    kind="secondary"
-                    icon="external-link"
-                    onClick={() => {
-                      const it = item()
-                      if (it !== undefined) void launchWith(null, [it.path])
-                    }}
-                  >
-                    Open with another app
-                  </Button>
-                </Show>
+                <For each={failureActions()}>
+                  {(a, i) => (
+                    <Button
+                      kind={i() === 0 && !canNext() ? 'primary' : 'secondary'}
+                      icon={a.icon}
+                      onClick={() => runAction(a.action)}
+                    >
+                      {a.label}
+                    </Button>
+                  )}
+                </For>
                 <Show when={canNext()}>
                   <Button kind="primary" icon="skip-forward" onClick={() => next(true)}>
                     Next
@@ -1060,13 +1410,30 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           )}
         </Show>
 
-        <Show when={waiting() && error() === null}>
+        <Show when={resolving() !== null && failure() === null}>
+          <div class="vp-getting" role="status">
+            <div class="vp-getting-spin" aria-hidden="true" />
+            <strong>Getting the video…</strong>
+            <span>{linkHost(resolving() ?? '')}</span>
+          </div>
+        </Show>
+
+        <Show when={(waiting() || explaining()) && failure() === null && resolving() === null}>
           <div class="vp-spinner" aria-label="Loading" />
         </Show>
 
         <Show when={osd()}>{(text) => <div class="vp-osd">{text()}</div>}</Show>
 
-        <Show when={!playing() && error() === null && item() !== undefined && !waiting()}>
+        <Show
+          when={
+            !playing() &&
+            failure() === null &&
+            item() !== undefined &&
+            !waiting() &&
+            !explaining() &&
+            resolving() === null
+          }
+        >
           <button class="vp-bigplay" aria-label="Play" onClick={toggle}>
             <Icon name="play" size={28} />
           </button>

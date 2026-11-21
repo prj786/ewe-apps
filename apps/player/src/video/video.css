@@ -34,6 +34,26 @@
   transition: transform var(--dur-base) var(--ease-out);
 }
 
+/* The bottom cue line rides above the control bar while the bar shows and slides back
+   down when it hides. WebKit lays cues out in the video's shadow tree; its text-track
+   container takes a transform (cue.line would jump and re-lay every cue), and the custom
+   property inherits into it. Raised / top cues are already clear of the bar. */
+.vp {
+  /* the bar: seek row + transport row + their gap + the bottom padding (.vp-controls) */
+  --vp-bar-height: calc(var(--control-sm) + var(--control-xl) + var(--space-xs) + var(--space-s));
+  --vp-cue-lift: 0px;
+}
+
+.vp.cue-bottom:not(.controls-hidden) {
+  /* clear of the bar and past the darkest part of its gradient */
+  --vp-cue-lift: calc(var(--vp-bar-height) + var(--space-md));
+}
+
+.vp-video::-webkit-media-text-track-container {
+  transform: translateY(calc(-1 * var(--vp-cue-lift)));
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
 /* subtitles: size from the pref, Geist like the rest of the UI */
 .vp-video::cue {
   font-family: var(--font-sans);
@@ -372,6 +392,40 @@
   animation-duration: calc(var(--dur-slow) * 4);
 }
 
+/* a link while yt-dlp finds the video on the page */
+.vp-getting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-s);
+  color: var(--neutral-0);
+  text-align: center;
+  animation: ewe-fade-in var(--dur-base) var(--ease-out);
+}
+
+.vp-getting strong {
+  margin-top: var(--space-s);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+}
+
+.vp-getting span {
+  color: color-mix(in srgb, var(--neutral-0) 70%, transparent);
+  font-size: var(--font-size-s);
+}
+
+.vp-getting-spin {
+  width: var(--control-xl);
+  height: var(--control-xl);
+  border: var(--border-width-2) solid color-mix(in srgb, var(--neutral-0) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: var(--fully-rounded);
+  animation: vp-spin calc(var(--dur-slow) * 4) linear infinite;
+}
+
 @keyframes vp-spin {
   to {
     transform: rotate(360deg);
@@ -589,6 +643,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* a link's picture from the site, 16:9 in the row's height */
+.pl-thumb {
+  flex: none;
+  width: calc(var(--icon-xl) * 16 / 9);
+  height: var(--icon-xl);
+  border-radius: var(--secondary);
+  object-fit: cover;
+  background: var(--surface-sunken);
+}
+
+.pl-name .pl-dur {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  font-variant-numeric: tabular-nums;
 }
 
 .pl-remove {

@@ -14,6 +14,8 @@ export interface Position {
   cfi?: string | undefined
   /** 0–1 scroll fraction for long text */
   scroll?: number | undefined
+  /** text: the encoding the person chose (a WHATWG name); absent = detected */
+  encoding?: string | undefined
   /** ms since the epoch, when it was last saved */
   at: number
 }

@@ -93,7 +93,9 @@ export function Tabs(props: {
             }}
           >
             <Show when={tab.icon}>{(icon) => <Icon name={icon()} size={14} />}</Show>
-            <span class="tab-label">{tab.label}</span>
+            <span class="tab-label" dir="auto">
+              {tab.label}
+            </span>
             <Show when={tab.dot}>
               <span class="tab-dot" />
             </Show>

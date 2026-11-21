@@ -39,3 +39,18 @@ export function coverUrl(server: MediaServer, path: string): string {
   const params = new URLSearchParams({ path, t: server.token })
   return `${origin(server)}/cover?${params.toString()}`
 }
+
+/** Pictures WebKitGTK cannot decode (HEIC/HEIF from phones): the core converts them. */
+export function needsPictureConversion(path: string): boolean {
+  return /\.(heic|heif|hif)$/i.test(path)
+}
+
+/**
+ * What an `<img>` shows a picture from: the raw file, or for HEIC/HEIF a JPEG the core
+ * makes once and caches (`/picture/<name>`).
+ */
+export function pictureUrl(server: MediaServer, path: string): string {
+  if (!needsPictureConversion(path)) return rawUrl(server, path)
+  const params = new URLSearchParams({ path, t: server.token })
+  return `${origin(server)}/picture/${encodeURIComponent(baseName(path))}.jpg?${params.toString()}`
+}

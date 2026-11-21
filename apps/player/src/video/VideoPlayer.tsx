@@ -47,6 +47,7 @@ import {
   type ResolvedLink,
   type SavedPosition,
 } from '@ewe/shared'
+import { TEXT_ENCODINGS, encodingLabel, encodingShort, isEncoding } from '@ewe/shared'
 import {
   Button,
   EmptyState,
@@ -116,6 +117,9 @@ interface SubTrack {
   /** file tracks: the source path (for the menu) and the blob URL of its VTT */
   path?: string
   url?: string
+  /** file tracks: the encoding it was read in, and whether the person chose it */
+  encoding?: string
+  chosen?: boolean
 }
 
 interface AudioTrackLike {
@@ -210,7 +214,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   /** sound plays but there is no picture: the video codec is missing */
   const [noPicture, setNoPicture] = createSignal<string | null>(null)
   let pictureTimer: ReturnType<typeof setTimeout> | null = null
-  type MenuKind = 'speed' | 'subs' | 'audio' | 'view' | 'more'
+  type MenuKind = 'speed' | 'subs' | 'audio' | 'view' | 'more' | 'encoding'
   const [menu, setMenu] = createSignal<{
     kind: MenuKind
     at: { x: number; y: number }
@@ -478,9 +482,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   const addSubtitleFile = async (path: string, show: boolean) => {
     const it = item()
     try {
-      const vtt = await subtitleVtt(path)
+      const sub = await subtitleVtt(path)
       if (item()?.path !== it?.path) return
-      const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
+      const url = URL.createObjectURL(new Blob([sub.vtt], { type: 'text/vtt' }))
       const track: SubTrack = {
         id: `file-${subs().length}-${Date.now()}`,
         label: subtitleLabel(path, it?.path ?? ''),
@@ -488,6 +492,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         language: subtitleLanguage(path, it?.path ?? ''),
         path,
         url,
+        encoding: sub.encoding,
       }
       setSubs((prev) => [...prev, track])
       if (show) {
@@ -495,6 +500,33 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         setActiveSub(track.id)
         queueMicrotask(applySubs)
       } else queueMicrotask(autoSubs)
+    } catch (e) {
+      toast(`Could not read ${path.slice(path.lastIndexOf('/') + 1)}: ${String(e)}`, {
+        kind: 'danger',
+      })
+    }
+  }
+
+  /** Read the active subtitle file again in another encoding (null: detect). */
+  const rereadSubtitle = async (encoding: string | null) => {
+    const old = subs().find((s) => s.id === activeSub())
+    if (old?.kind !== 'file' || old.path === undefined) return
+    const path = old.path
+    try {
+      const sub = await subtitleVtt(path, encoding)
+      const track: SubTrack = {
+        ...old,
+        // a new <track> element: WebKit does not reload one whose src changes
+        id: `file-${subs().length}-${Date.now()}`,
+        url: URL.createObjectURL(new Blob([sub.vtt], { type: 'text/vtt' })),
+        encoding: sub.encoding,
+        chosen: encoding !== null,
+      }
+      setSubs((prev) => prev.map((s) => (s.id === old.id ? track : s)))
+      if (old.url !== undefined) URL.revokeObjectURL(old.url)
+      setActiveSub(track.id)
+      queueMicrotask(applySubs)
+      flash(encodingLabel(sub.encoding))
     } catch (e) {
       toast(`Could not read ${path.slice(path.lastIndexOf('/') + 1)}: ${String(e)}`, {
         kind: 'danger',
@@ -776,7 +808,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   // --- screenshot hook ----------------------------------------------------------------
   const applyScene = (scene: string) => {
     const at = { x: Math.round(stageSize().w * 0.7), y: Math.round(stageSize().h - 56) }
-    if (scene === 'subs')
+    if (scene === 'subs' || scene === 'subs-encoding')
       setTimeout(() => {
         const srt = subs().find((s) => s.path?.toLowerCase().endsWith('.srt'))
         if (srt !== undefined) {
@@ -787,6 +819,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       }, 1200)
     if (scene === 'audio-menu') setTimeout(() => setMenu({ kind: 'audio', at }), 400)
     else if (scene === 'subs-menu') setTimeout(() => setMenu({ kind: 'subs', at }), 400)
+    else if (scene === 'subs-encoding') setTimeout(() => setMenu({ kind: 'encoding', at }), 1600)
     else if (scene === 'playlist') props.onPrefs({ panel: true })
     else if (scene === 'mini') props.onMini(true)
   }
@@ -1088,6 +1121,30 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
       ),
     },
   ]
+
+  /** the subtitle file showing now (embedded tracks are decoded by GStreamer) */
+  const activeFile = () => subs().find((s) => s.id === activeSub() && s.kind === 'file')
+  const encodingItems = (): MenuEntry[] => {
+    const file = activeFile()
+    return [
+      {
+        type: 'item',
+        id: 'enc-auto',
+        label: 'Automatic',
+        hint: file?.chosen === true ? undefined : encodingShort(file?.encoding ?? 'UTF-8'),
+        icon: check(file?.chosen !== true),
+        run: () => void rereadSubtitle(null),
+      },
+      { type: 'separator' },
+      ...TEXT_ENCODINGS.map((e): MenuEntry => ({
+        type: 'item',
+        id: `enc-${e.name}`,
+        label: e.label,
+        icon: check(file?.chosen === true && isEncoding(file.encoding, e.name)),
+        run: () => void rereadSubtitle(e.name),
+      })),
+    ]
+  }
   const menuItems = (): MenuEntry[] => {
     const m = menu()
     return m === null ? [] : itemsFor(m.kind)
@@ -1152,6 +1209,14 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           },
           {
             type: 'item',
+            id: 'encoding',
+            label: 'Subtitle encoding',
+            hint: activeFile() ? encodingShort(activeFile()?.encoding ?? 'UTF-8') : undefined,
+            disabled: activeFile() === undefined,
+            items: encodingItems(),
+          },
+          {
+            type: 'item',
             id: 'size',
             label: 'Size',
             items: sizes.map((s) => ({
@@ -1176,6 +1241,8 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
           },
         ]
       }
+      case 'encoding':
+        return encodingItems()
       case 'audio':
         return audioItems()
       case 'view':
@@ -1499,7 +1566,7 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         </Show>
 
         <div class="vp-top">
-          <span class="vp-title" title={item()?.path}>
+          <span class="vp-title" dir="auto" title={item()?.path}>
             {title()}
           </span>
           <Show when={props.queue.length > 1}>

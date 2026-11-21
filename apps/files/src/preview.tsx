@@ -1,7 +1,7 @@
 // The preview pane (F9): the selected file at a glance.
 
 import { Match, Show, Switch, createResource, type JSX } from 'solid-js'
-import { fileKind, formatBytes, type FsEntry, type ThumbSize } from '@ewe/shared'
+import { fileKind, formatBytes, type FsEntry, type TextFile, type ThumbSize } from '@ewe/shared'
 import { Button, EmptyState, Icon, IconButton } from '@ewe/ui'
 import { api } from './api'
 import { fmtDate } from './dialogs'
@@ -11,6 +11,10 @@ import { pdfThumb } from './pdfview'
 export function Preview(props: {
   row: Row | null
   rawUrl(path: string): string
+  /** pictures: HEIC/HEIF come converted */
+  pictureUrl(path: string): string
+  /** text decoded by the core, whatever its encoding */
+  readText(path: string, max?: number): Promise<TextFile>
   thumbUrl(path: string, size: ThumbSize): string
   onOpen(row: FsEntry): void
   /** compact windows: the pane floats over the folder and has a close button */
@@ -29,11 +33,15 @@ export function Preview(props: {
   const [text] = createResource(
     () =>
       props.row !== null && (kind() === 'text' || kind() === 'code') && props.row.size < 200_000
-        ? props.rawUrl(props.row.path)
+        ? props.row.path
         : null,
-    async (url) => {
-      const r = await fetch(url, { headers: { range: 'bytes=0-4095' } })
-      return r.ok ? (await r.text()).split('\n').slice(0, 40).join('\n') : ''
+    async (path) => {
+      try {
+        const read = await props.readText(path, 4096)
+        return read.text.split('\n').slice(0, 40).join('\n')
+      } catch {
+        return ''
+      }
     },
   )
   return (
@@ -71,7 +79,7 @@ export function Preview(props: {
                 }
               >
                 <Match when={kind() === 'image'}>
-                  <img class="fm-preview-img" src={props.rawUrl(row().path)} alt="" />
+                  <img class="fm-preview-img" src={props.pictureUrl(row().path)} alt="" />
                 </Match>
                 <Match when={kind() === 'video' || kind() === 'audio'}>
                   <img class="fm-preview-img" src={props.thumbUrl(row().path, 512)} alt="" />
@@ -84,7 +92,9 @@ export function Preview(props: {
                 </Match>
               </Switch>
             </div>
-            <div class="fm-preview-name">{row().name}</div>
+            <div class="fm-preview-name" dir="auto">
+              {row().name}
+            </div>
             <dl class="props-grid compact">
               <dt>Type</dt>
               <dd>{mime()?.description ?? KIND_LABEL[kind()]}</dd>

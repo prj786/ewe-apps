@@ -3,7 +3,11 @@
 //! `http://127.0.0.1:<port>/raw/<name>?path=<abs>&t=<token>` streams a file with
 //! HTTP Range support (206, `Accept-Ranges`, `Content-Range`), the right content
 //! type and `Content-Disposition: inline; filename=…`; `/thumb?path=&size=&t=` and
-//! `/cover?path=&t=` answer PNG / image bytes. Every route needs the per-run token
+//! `/cover?path=&t=` answer PNG / image bytes; `/text/<name>?path=&t=[&enc=][&max=]`
+//! answers the file's text as UTF-8 whatever it was written in ([`crate::text`]), with
+//! `X-Ewe-Encoding` / `X-Ewe-Encoding-Confident` / `X-Ewe-Truncated`;
+//! `/picture/<name>?path=&t=` answers a JPEG of a HEIC/HEIF ([`crate::picture`]).
+//! Every route needs the per-run token
 //! or it is 403; only regular files are served. The port is random, the token is
 //! 32 random bytes in hex, both handed to the webview through `media_server`.
 
@@ -34,7 +38,27 @@ pub struct MediaServerInfo {
 struct Shared {
     token: String,
     thumbs: Thumbs,
+    /// converted HEIC copies (`$XDG_CACHE_HOME/ewe-apps/pictures`)
+    pictures: PathBuf,
+    /// at most two HEIC conversions at once (a folder of phone pictures, ← → prefetch)
+    convert: tokio::sync::Semaphore,
 }
+
+impl Shared {
+    fn new(token: String, thumbs: Thumbs) -> Shared {
+        Shared {
+            token,
+            pictures: crate::picture::root_beside(thumbs.root()),
+            thumbs,
+            convert: tokio::sync::Semaphore::new(2),
+        }
+    }
+}
+
+/// How much of a file `/text` reads when the page does not say: the text views' 2 MB.
+pub const TEXT_MAX_DEFAULT: u64 = 2 * 1024 * 1024;
+/// The most `/text` reads at all.
+pub const TEXT_MAX_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub fn random_token() -> String {
     let mut bytes = [0u8; 32];
@@ -318,6 +342,102 @@ async fn cover(
     }
 }
 
+/// The file's text as UTF-8: `enc` = a WHATWG label to force (`auto` or none: detect,
+/// with the language in the file name or the system locale as the hint), `max` = bytes
+/// to read (default 2 MB). A cut-off file says so in `X-Ewe-Truncated: 1`.
+async fn text(
+    State(shared): State<Arc<Shared>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let path = match check(&shared, &q) {
+        Ok(p) => p,
+        Err(code) => return code.into_response(),
+    };
+    let max = q
+        .get("max")
+        .and_then(|m| m.parse::<u64>().ok())
+        .unwrap_or(TEXT_MAX_DEFAULT)
+        .clamp(1, TEXT_MAX_LIMIT);
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let len = match file.metadata().await {
+        Ok(m) if m.is_file() => m.len(),
+        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let mut bytes = Vec::with_capacity(len.min(max) as usize);
+    if file.take(max).read_to_end(&mut bytes).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    let truncated = len > max;
+    let label = q.get("enc").cloned();
+    let decoded = tokio::task::spawn_blocking(move || {
+        let hint = crate::text::language_in_name(&name).or_else(crate::text::locale_hint);
+        crate::text::decode_with(&bytes, label.as_deref(), hint.as_deref(), !truncated)
+    })
+    .await;
+    let Ok(decoded) = decoded else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let mut out = HeaderMap::new();
+    out.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if let Ok(v) = HeaderValue::from_str(&decoded.encoding) {
+        out.insert("x-ewe-encoding", v);
+    }
+    out.insert(
+        "x-ewe-encoding-confident",
+        HeaderValue::from_static(if decoded.confident { "1" } else { "0" }),
+    );
+    out.insert(
+        "x-ewe-truncated",
+        HeaderValue::from_static(if truncated { "1" } else { "0" }),
+    );
+    (StatusCode::OK, out, decoded.text).into_response()
+}
+
+/// A JPEG of a picture WebKitGTK cannot decode (HEIC/HEIF), made once and cached.
+async fn picture(
+    State(shared): State<Arc<Shared>>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    let path = match check(&shared, &q) {
+        Ok(p) => p,
+        Err(code) => return code.into_response(),
+    };
+    if !crate::picture::needs_conversion(&path) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let meta = match tokio::fs::metadata(&path).await {
+        Ok(m) if m.is_file() => m,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let etag = format!("\"p-{}\"", etag_for(&meta).trim_matches('"'));
+    if not_modified(&headers, &etag) {
+        return StatusCode::NOT_MODIFIED.into_response();
+    }
+    let Ok(_permit) = shared.convert.acquire().await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let root = shared.pictures.clone();
+    let made = tokio::task::spawn_blocking(move || crate::picture::converted(&root, &path)).await;
+    match made {
+        Ok(Some(file)) => match tokio::fs::read(&file).await {
+            Ok(bytes) => image_response(bytes, "image/jpeg", Some(etag)),
+            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        },
+        // no decoder here, or not a picture: the page says so in words
+        _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+    }
+}
+
 /// A running server. Dropping it does not stop the task; it lives for the process.
 pub struct MediaServer {
     pub info: MediaServerInfo,
@@ -329,10 +449,7 @@ pub fn start(thumbs: Thumbs) -> std::io::Result<MediaServer> {
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     let token = random_token();
-    let shared = Arc::new(Shared {
-        token: token.clone(),
-        thumbs,
-    });
+    let shared = Arc::new(Shared::new(token.clone(), thumbs));
     tauri::async_runtime::spawn(async move {
         let app = router(shared);
         let listener = match tokio::net::TcpListener::from_std(listener) {
@@ -384,7 +501,8 @@ async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Resp
         h.insert(
             header::ACCESS_CONTROL_EXPOSE_HEADERS,
             HeaderValue::from_static(
-                "Accept-Ranges, Content-Range, Content-Length, ETag, Content-Type",
+                "Accept-Ranges, Content-Range, Content-Length, ETag, Content-Type, \
+                 X-Ewe-Encoding, X-Ewe-Encoding-Confident, X-Ewe-Truncated",
             ),
         );
         if preflight {
@@ -410,6 +528,8 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/raw/{name}", get(raw))
         .route("/thumb", get(thumb))
         .route("/cover", get(cover))
+        .route("/text/{name}", get(text))
+        .route("/picture/{name}", get(picture))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(axum::middleware::from_fn(cors))
         .with_state(shared)
@@ -422,7 +542,7 @@ pub async fn serve_on(
 ) -> std::io::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
-    let shared = Arc::new(Shared { token, thumbs });
+    let shared = Arc::new(Shared::new(token, thumbs));
     let handle = tokio::spawn(async move {
         let _ = axum::serve(listener, router(shared)).await;
     });
@@ -556,6 +676,113 @@ mod tests {
         let (head, _) = get(Some("bytes=5000-"), &token).await;
         assert!(head.starts_with("HTTP/1.1 416"), "{head}");
         assert!(head.contains("content-range: bytes */1000"));
+    }
+
+    async fn http(addr: SocketAddr, req: String) -> (String, Vec<u8>) {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut s, req.as_bytes())
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        s.read_to_end(&mut buf).await.unwrap();
+        let split = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8_lossy(&buf[..split]).to_ascii_lowercase();
+        (head, buf[split + 4..].to_vec())
+    }
+
+    fn enc(path: &Path) -> String {
+        percent_encoding::utf8_percent_encode(
+            &path.to_string_lossy(),
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn text_comes_back_as_utf8_with_its_encoding_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/text");
+        let file = dir.path().join("Фильм.ru.srt");
+        std::fs::copy(fixtures.join("ru.cp1251.srt"), &file).unwrap();
+        let want = std::fs::read_to_string(fixtures.join("ru.utf8.srt")).unwrap();
+        let (addr, _h) = serve_on(Thumbs::new(dir.path().join("cache")), "t".into())
+            .await
+            .unwrap();
+        let get = |query: String| {
+            format!(
+                "GET /text/x.srt?path={}&t=t{query} HTTP/1.1\r\nHost: x\r\nOrigin: tauri://localhost\r\nConnection: close\r\n\r\n",
+                enc(&file)
+            )
+        };
+        let (head, body) = http(addr, get(String::new())).await;
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(
+            head.contains("content-type: text/plain; charset=utf-8"),
+            "{head}"
+        );
+        assert!(head.contains("x-ewe-encoding: windows-1251"), "{head}");
+        assert!(head.contains("x-ewe-encoding-confident: 1"), "{head}");
+        assert!(head.contains("x-ewe-truncated: 0"), "{head}");
+        assert!(
+            head.lines()
+                .any(|l| l.starts_with("access-control-expose-headers")
+                    && l.contains("x-ewe-encoding-confident")),
+            "the page may read them: {head}"
+        );
+        assert_eq!(String::from_utf8(body).unwrap(), want);
+        // the person picked another encoding
+        let (head, body) = http(addr, get("&enc=koi8-r".into())).await;
+        assert!(head.contains("x-ewe-encoding: koi8-r"), "{head}");
+        assert_ne!(String::from_utf8(body).unwrap(), want);
+        // the first 100 bytes only
+        let (head, body) = http(addr, get("&max=100".into())).await;
+        assert!(head.contains("x-ewe-truncated: 1"), "{head}");
+        let body = String::from_utf8(body).unwrap();
+        assert!(want.starts_with(&body) && !body.is_empty(), "{body}");
+        // no token, no text
+        let (head, _) = http(addr, get(String::new()).replace("&t=t", "&t=x")).await;
+        assert!(head.starts_with("http/1.1 403"), "{head}");
+    }
+
+    #[tokio::test]
+    async fn heic_is_served_as_jpeg() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("IMG_0001.HEIC");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pictures/rotated.heic"),
+            &src,
+        )
+        .unwrap();
+        let png = dir.path().join("a.png");
+        std::fs::write(&png, b"x").unwrap();
+        let thumbs = dir.path().join("cache").join("thumbnails");
+        let (addr, _h) = serve_on(Thumbs::new(thumbs), "t".into()).await.unwrap();
+        let get = |p: &Path| {
+            format!(
+                "GET /picture/x.jpg?path={}&t=t HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                enc(p)
+            )
+        };
+        let (head, _) = http(addr, get(&png)).await;
+        assert!(
+            head.starts_with("http/1.1 404"),
+            "only HEIF is converted: {head}"
+        );
+        if crate::picture::on_path("heif-dec").is_none() {
+            return;
+        }
+        let (head, body) = http(addr, get(&src)).await;
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(head.contains("content-type: image/jpeg"), "{head}");
+        let img = image::load_from_memory(&body).unwrap();
+        assert_eq!((img.width(), img.height()), (720, 960));
+        // cached beside the thumbnails
+        assert_eq!(
+            std::fs::read_dir(dir.path().join("cache/ewe-apps/pictures"))
+                .unwrap()
+                .count(),
+            1
+        );
     }
 
     #[test]

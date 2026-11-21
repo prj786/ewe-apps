@@ -56,6 +56,59 @@ const EASINGS: Record<string, string> = {
 const TOKEN_KEY = /^[a-z0-9-]+$/
 const FONT_CSS = /^[\w\s"',.-]+$/
 
+/**
+ * Faces for the scripts Geist has no glyphs for, all from `noto-fonts` (an ewe package).
+ * Without them WebKitGTK resolves `system-ui` through fontconfig, which on Arch picks GNU
+ * FreeFont (FreeMono!) for Arabic: unjoined letters in a typewriter face. CJK is left to
+ * fontconfig (Source Han Sans, the regional cut by language).
+ */
+export const SCRIPT_FONTS: readonly string[] = [
+  'Noto Sans Arabic UI',
+  'Noto Sans Hebrew',
+  'Noto Sans Georgian',
+  'Noto Sans Armenian',
+  'Noto Sans Devanagari UI',
+  'Noto Sans Bengali UI',
+  'Noto Sans Gurmukhi UI',
+  'Noto Sans Gujarati UI',
+  'Noto Sans Tamil UI',
+  'Noto Sans Telugu UI',
+  'Noto Sans Kannada UI',
+  'Noto Sans Malayalam UI',
+  'Noto Sans Sinhala UI',
+  'Noto Sans Thai',
+  'Noto Sans Lao',
+  'Noto Sans Khmer',
+  'Noto Sans Myanmar',
+  'Noto Sans Ethiopic',
+]
+
+const GENERIC_FONTS = new Set([
+  'system-ui',
+  'ui-sans-serif',
+  'ui-serif',
+  'ui-monospace',
+  'sans-serif',
+  'serif',
+  'monospace',
+  'cursive',
+  'fantasy',
+])
+
+/** A font stack with SCRIPT_FONTS put before its first generic family (none twice). */
+export function withScriptFonts(stack: string): string {
+  const families = stack
+    .split(',')
+    .map((f) => f.trim())
+    .filter((f) => f !== '')
+  const plain = (f: string) => f.replace(/^["']|["']$/g, '').toLowerCase()
+  const have = new Set(families.map(plain))
+  const extra = SCRIPT_FONTS.filter((f) => !have.has(f.toLowerCase())).map((f) => `"${f}"`)
+  const at = families.findIndex((f) => GENERIC_FONTS.has(plain(f)))
+  const cut = at === -1 ? families.length : at
+  return [...families.slice(0, cut), ...extra, ...families.slice(cut)].join(', ')
+}
+
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -85,8 +138,10 @@ function baseVars(parsed: Record<string, unknown>): Record<string, string> {
   }
   if (isObject(parsed.type)) {
     const css = isObject(parsed.type.css) ? parsed.type.css : {}
-    if (typeof css.sans === 'string' && FONT_CSS.test(css.sans)) base['--font-sans'] = css.sans
-    if (typeof css.mono === 'string' && FONT_CSS.test(css.mono)) base['--font-mono'] = css.mono
+    if (typeof css.sans === 'string' && FONT_CSS.test(css.sans))
+      base['--font-sans'] = withScriptFonts(css.sans)
+    if (typeof css.mono === 'string' && FONT_CSS.test(css.mono))
+      base['--font-mono'] = withScriptFonts(css.mono)
     if (isObject(parsed.type.weight)) {
       for (const [key, value] of Object.entries(parsed.type.weight)) {
         const n = num(value)

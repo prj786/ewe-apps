@@ -1,6 +1,7 @@
 // Pictures: fit / actual size, zoom (wheel, pinch, keys) and pan (drag), rotate, flip,
 // slideshow, stepping through the folder, an info panel with EXIF, copy, set as
-// wallpaper, move to Trash. GIF/WebP/AVIF/SVG animate by themselves in <img>.
+// wallpaper, move to Trash. GIF/WebP/AVIF/SVG animate by themselves in <img>; HEIC/HEIF
+// (phone pictures, which WebKitGTK cannot decode) come as a JPEG the core converts once.
 
 import {
   For,
@@ -13,7 +14,7 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { formatBytes, rawUrl } from '@ewe/shared'
+import { formatBytes, pictureUrl } from '@ewe/shared'
 import {
   Button,
   Dialog,
@@ -107,7 +108,7 @@ export function ImageView(props: ViewProps): JSX.Element {
       // warm the neighbours
       for (const delta of [1, -1]) {
         const next = siblings()[(index() + delta + count()) % count()]
-        if (next !== undefined && next !== p) new Image().src = rawUrl(props.server, next)
+        if (next !== undefined && next !== p) new Image().src = pictureUrl(props.server, next)
       }
     }),
   )
@@ -489,7 +490,9 @@ export function ImageView(props: ViewProps): JSX.Element {
     <div class="iv" classList={{ 'iv--slideshow': slideshow() }}>
       <Toolbar label="Picture" class="view-toolbar">
         <span class="view-title">
-          <span class="view-name">{name()}</span>
+          <span class="view-name" dir="auto">
+            {name()}
+          </span>
           <span class="view-meta">{metaLine()}</span>
         </span>
         <span class="toolbar-spacer" />
@@ -568,7 +571,7 @@ export function ImageView(props: ViewProps): JSX.Element {
             fallback={
               <EmptyState icon="image" title="This picture cannot be shown here" warning>
                 {mime()?.type.includes('hei') === true
-                  ? 'HEIC pictures need a HEIF loader that WebKitGTK does not have on this machine.'
+                  ? 'This phone picture could not be converted: libheif (heif-dec) may be missing.'
                   : `The system's WebKit cannot decode this ${mime()?.description ?? 'picture'}.`}{' '}
                 <Button small kind="secondary" onClick={() => void showOpenWith()}>
                   Open with…
@@ -579,7 +582,7 @@ export function ImageView(props: ViewProps): JSX.Element {
             <img
               ref={img}
               class="iv-image"
-              src={rawUrl(props.server, current())}
+              src={pictureUrl(props.server, current())}
               alt={name()}
               draggable={false}
               style={{ transform: transform() }}

@@ -125,7 +125,7 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                     >
                       {(src) => <img class="pl-thumb" src={src()} alt="" loading="lazy" />}
                     </Show>
-                    <span>{itemTitle(item)}</span>
+                    <span dir="auto">{itemTitle(item)}</span>
                     <Show when={item.duration}>
                       {(d) => <span class="pl-dur">{formatClock(d())}</span>}
                     </Show>
@@ -169,7 +169,7 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                   </span>
                   <button class="pl-name" title={item.path} onClick={() => addSibling(item)}>
                     <Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />
-                    <span>{stemOf(item.name)}</span>
+                    <span dir="auto">{stemOf(item.name)}</span>
                   </button>
                 </li>
               )}

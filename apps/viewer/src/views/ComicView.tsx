@@ -223,7 +223,9 @@ export function ComicView(props: ViewProps): JSX.Element {
     <div class="cb">
       <Toolbar label="Comic" class="view-toolbar">
         <span class="view-title">
-          <span class="view-name">{baseName(props.path)}</span>
+          <span class="view-name" dir="auto">
+            {baseName(props.path)}
+          </span>
           <span class="view-meta">
             {count() > 0 ? `${count()} pages` : ''}
             {source() !== 'zip' && status() === 'ready' ? ` · read with ${source()}` : ''}

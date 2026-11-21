@@ -245,7 +245,9 @@ function MenuPanel(props: PanelProps): JSX.Element {
                       </Show>
                       <Show when={item().icon}>{(icon) => <Icon name={icon()} />}</Show>
                     </span>
-                    <span class="menu-label">{item().label}</span>
+                    <span class="menu-label" dir="auto">
+                      {item().label}
+                    </span>
                     <Show when={item().hint}>
                       {(hint) => <span class="menu-hint">{hint()}</span>}
                     </Show>

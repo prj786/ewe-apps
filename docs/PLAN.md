@@ -196,7 +196,8 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       foliate-js, CBZ/CBR, Markdown/text/code, DOCX, XLSX/ODS/CSV, pictures with EXIF/wallpaper/
       Trash, Open with… for the rest), tabs + start screen + drag-drop + single instance,
       `--key=value` flags for every state; screenshots dark + light in the agents' map. Not done:
-      annotations are shown but not editable; HEIC depends on the system's glycin loader; print
+      annotations are shown but not editable; HEIC depended on the system's glycin loader (since
+      2026-11-21 the core converts it); print
       and the GTK dialogs could not be exercised headless (owner's real-machine list in the report).
 
 - [x] ewe Player — 2026-11-19 (branch `feat/player`): video player (GStreamer `<video>`, Ewe control
@@ -215,6 +216,16 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       control bar. Spike results in AGENTS.md "Links". Not done: the ffmpeg remux route for sites
       that only offer separate video + audio files (none of the tested ones); Vimeo serves DRM or
       blocks anonymous clients; drops of links from a browser were not exercised headless.
+- [x] text in any encoding, phone pictures, right-to-left names — 2026-11-21 (branch
+      `feat/text-images`, wave "media + languages" L3/A4/L4): the core decodes text with
+      chardetng + encoding_rs (BOM, UTF-8, else a guess helped by the file name's language or the
+      system's) for the Player's subtitles and `.m3u` titles, the Viewer's text view / Markdown /
+      CSV and Files' quick look + preview; Encoding menus in the Viewer's text toolbar and the
+      Player's subtitle menu. HEIC/HEIF become a cached upright JPEG through `heif-dec` (Viewer,
+      quick look, preview); HEIC/AVIF/JPEG XL thumbnails; AVIF/JXL show natively. Names, titles
+      and tags carry `dir="auto"`; Noto script faces precede `system-ui` (Arabic was drawn in
+      FreeMono, unjoined). Not done: ID3v1/Latin-1-frame tags in cp1251 still read as Latin-1
+      (lofty); copying or setting a HEIC as wallpaper uses the original file.
 - [x] packaging + CI + release workflow — 2026-11-19 (desktop entries, icons, PKGBUILD, ci.yml, release.yml; the GitHub repo and the first tag are the owner's call)
 - [x] ewe package diet, mime defaults, shell references (+ Settings → Default apps rows)
 - [x] ewe-repo (Reversal dedupe via hardlink, publish ewe-apps, gate blacklists nvidia-utils)

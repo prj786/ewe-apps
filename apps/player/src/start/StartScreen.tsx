@@ -57,7 +57,9 @@ export function StartScreen(props: StartScreenProps): JSX.Element {
             )}
           </Show>
         </span>
-        <span class="st-name">{stemOf(p.item.name)}</span>
+        <span class="st-name" dir="auto">
+          {stemOf(p.item.name)}
+        </span>
         <span class="st-sub">
           <Show when={saved()} fallback={timeAgo(Date.parse(p.item.modified) || Date.now())}>
             {(s) => `Continue at ${formatClock(s().position)}`}
@@ -105,7 +107,7 @@ export function StartScreen(props: StartScreenProps): JSX.Element {
                 <li>
                   <button class="st-song" onClick={() => props.onOpen(item.path)} title={item.path}>
                     <Icon name="music" size={14} />
-                    <span>{stemOf(item.name)}</span>
+                    <span dir="auto">{stemOf(item.name)}</span>
                   </button>
                 </li>
               )}

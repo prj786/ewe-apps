@@ -1,0 +1,19 @@
+1
+00:00:01,000 --> 00:00:04,500
+Bonjour ! Ça va, mon vieux ?
+
+2
+00:00:05,000 --> 00:00:08,500
+Il fait très froid aujourd'hui, n'est-ce pas ?
+
+3
+00:00:09,000 --> 00:00:12,500
+Je ne sais pas où il est en ce moment.
+
+4
+00:00:13,000 --> 00:00:16,500
+Rentrons à la maison, il est déjà tard.
+
+5
+00:00:17,000 --> 00:00:20,500
+Merci pour tout, mon frère. À bientôt !

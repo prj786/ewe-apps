@@ -37,6 +37,9 @@ depends=(
   # finds the stream (it pulls yt-dlp-ejs + deno, which YouTube's challenge needs)
   'yt-dlp'
   'ffmpegthumbnailer'       # video thumbnails into the freedesktop cache
+  'libheif'                 # heif-dec: iPhone HEIC/HEIF pictures (WebKitGTK has no HEIF
+                            # decoder) and AVIF thumbnails; djxl comes with libjxl and
+                            # libjpeg-turbo / libpng (its JPEG/PNG writers) with webkit2gtk
   'libarchive'              # bsdtar: list / extract / compress archives
   '7zip'                    # 7z archives
 )

@@ -3,7 +3,8 @@
 //! Thumbnail Managing Standard: `<md5 of the file URI>.png`, `Thumb::URI` and
 //! `Thumb::MTime` text chunks, a temp file renamed into place, 0700 dirs, 0600 files.
 //! Images go through the `image` crate (EXIF orientation applied), videos through
-//! `ffmpegthumbnailer` when it is on the PATH, audio through the embedded cover.
+//! `ffmpegthumbnailer` when it is on the PATH, audio through the embedded cover, HEIC /
+//! AVIF / JPEG XL through `heif-dec` / `djxl` ([`crate::picture`]).
 //! At most three generations run at once.
 
 use std::path::{Path, PathBuf};
@@ -99,6 +100,11 @@ impl Thumbs {
         }
     }
 
+    /// The `thumbnails` directory this cache writes to.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn default_root() -> PathBuf {
         crate::xdg::cache_home().join("thumbnails")
     }
@@ -128,6 +134,9 @@ impl Thumbs {
 }
 
 fn kind_of(path: &Path) -> &'static str {
+    if crate::picture::thumb_needs_conversion(path) {
+        return "converted";
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -148,6 +157,9 @@ pub fn generate(root: &Path, path: &Path, size: u32, mtime: i64) -> Option<Vec<u
     let (dir, px) = size_dir(size);
     let img = match kind_of(path) {
         "image" => load_image(path)?,
+        "converted" => {
+            crate::picture::decode_for_thumbnail(&crate::picture::root_beside(root), path)?
+        }
         "video" => video_frame(path, px)?,
         "audio" => {
             let cover = crate::cover::find(path)?;
@@ -177,15 +189,8 @@ fn load_image(path: &Path) -> Option<image::DynamicImage> {
     Some(img)
 }
 
-fn on_path(bin: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|d| d.join(bin))
-        .find(|p| p.is_file())
-}
-
 fn video_frame(path: &Path, px: u32) -> Option<image::DynamicImage> {
-    let tool = on_path("ffmpegthumbnailer")?;
+    let tool = crate::picture::on_path("ffmpegthumbnailer")?;
     let tmp = std::env::temp_dir().join(format!(
         "ewe-apps-thumb-{}-{}.png",
         std::process::id(),
@@ -316,6 +321,19 @@ mod tests {
             Some(cache_path(&root, "x-large", &src))
         );
         assert!(big.len() > png.len());
+        // a phone picture (HEIC, turned by its HEIF rotation) when heif-dec is there
+        if crate::picture::on_path("heif-dec").is_some() {
+            let heic = dir.path().join("IMG_0001.HEIC");
+            std::fs::copy(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pictures/rotated.heic"),
+                &heic,
+            )
+            .unwrap();
+            let png = thumbs.get(heic.clone(), 128).await.expect("heic thumbnail");
+            let decoded = image::load_from_memory(&png).unwrap();
+            assert_eq!((decoded.width(), decoded.height()), (96, 128));
+            assert!(cache_path(&root, "normal", &heic).is_file());
+        }
         // not an image: nothing
         let txt = dir.path().join("a.txt");
         std::fs::write(&txt, "hi").unwrap();

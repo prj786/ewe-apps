@@ -5,9 +5,12 @@
 //!   `theme-changed` to the webview.
 //! - [`server`]: the loopback media server (`127.0.0.1`, a random port, a per-run token):
 //!   `/raw/<name>?path=&t=` with HTTP Range streaming, `/thumb?path=&size=&t=`,
-//!   `/cover?path=&t=`. 403 without the token. WebKitGTK media needs real Range
-//!   streaming, so files never travel through a custom scheme.
+//!   `/cover?path=&t=`, `/text/<name>?path=&t=` (any encoding → UTF-8) and
+//!   `/picture/<name>?path=&t=` (HEIC → JPEG); 403 without the token. WebKitGTK media
+//!   needs real Range streaming, so files never travel through a custom scheme.
 //! - [`thumbs`]: the freedesktop thumbnail cache, read and written per the spec.
+//! - [`text`]: bytes in any encoding → text (BOM, UTF-8, chardetng + encoding_rs).
+//! - [`picture`]: HEIC/HEIF → a cached JPEG; HEIC/AVIF/JPEG XL decoded for thumbnails.
 //! - [`cover`]: audio covers (embedded picture or a cover image next to the file).
 //! - [`recent`]: appends to `recently-used.xbel` the way GTK does.
 //! - [`mime`]: content types and applications through GIO.
@@ -25,8 +28,10 @@ pub mod cover;
 pub mod exif;
 pub mod launch;
 pub mod mime;
+pub mod picture;
 pub mod recent;
 pub mod server;
+pub mod text;
 pub mod theme;
 pub mod thumbs;
 pub mod xdg;

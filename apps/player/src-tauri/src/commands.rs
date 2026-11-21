@@ -119,11 +119,15 @@ pub fn subtitle_files(video: String) -> Vec<String> {
         .collect()
 }
 
-/// A subtitle file as WebVTT text (SRT / ASS / SSA converted).
+/// A subtitle file as WebVTT text (SRT / ASS / SSA converted) and the encoding it was
+/// read in; `encoding` (a WHATWG label) overrides the guess, `None` / "auto" detects.
 #[tauri::command]
-pub async fn subtitle_vtt(path: String) -> Result<String, String> {
+pub async fn subtitle_vtt(
+    path: String,
+    encoding: Option<String>,
+) -> Result<crate::subs::SubtitleVtt, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::subs::to_vtt(Path::new(&path)).map_err(|e| e.to_string())
+        crate::subs::to_vtt(Path::new(&path), encoding.as_deref()).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

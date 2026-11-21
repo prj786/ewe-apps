@@ -27,7 +27,9 @@ import {
   isExecutable,
   isFileName,
   parentOf,
+  pictureUrl,
   rawUrl,
+  readText,
   samePlaces,
   syncAction,
   thumbUrl,
@@ -47,6 +49,7 @@ import {
   type ThumbSize,
   type Tools,
   type TrashEntry,
+  type TextFile,
 } from '@ewe/shared'
 import {
   Icon,
@@ -323,6 +326,18 @@ export function App(): JSX.Element {
   const raw = (path: string): string => {
     const s = server()
     return s === null ? '' : rawUrl(s, path)
+  }
+  /** what an <img> shows: the raw file, or a JPEG of a HEIC the core converts */
+  const picture = (path: string): string => {
+    const s = server()
+    return s === null ? '' : pictureUrl(s, path)
+  }
+  /** a text file as UTF-8 whatever it was written in (the core detects the encoding) */
+  const readTextFile = (path: string, max?: number): Promise<TextFile> => {
+    const s = server()
+    return s === null
+      ? Promise.reject(new Error('The media server is not ready'))
+      : readText(s, path, { max })
   }
 
   const say = (text: string, kind: 'info' | 'danger' | 'success' = 'info') => toast(text, { kind })
@@ -1294,7 +1309,11 @@ export function App(): JSX.Element {
           pane.go(TRASH_PATH)
           break
         case 'quicklook': {
-          const img = rows.find((r) => r.name === 'sunset.png' || r.name === 'README.md') ?? first
+          // the row `--select=` picked, else the fixture's usual suspects
+          const img =
+            pane.selected()[0] ??
+            rows.find((r) => r.name === 'sunset.png' || r.name === 'README.md') ??
+            first
           if (img !== undefined) {
             pane.select([img.path])
             quickLook(pane, img)
@@ -1335,6 +1354,9 @@ export function App(): JSX.Element {
             }
           })
           break
+        case 'grid':
+          setPref(pane.path(), { view: 'grid' })
+          break
         case 'grid-preview':
           setPref(pane.path(), { view: 'grid' })
           showPreview()
@@ -1344,10 +1366,12 @@ export function App(): JSX.Element {
           pane.selectAll()
           after(100, () => setDialog({ kind: 'rename-many', entries: pane.selected(), pane }))
           break
-        case 'preview':
+        case 'preview': {
           showPreview()
-          if (first !== undefined) pane.select([first.path])
+          const row = pane.selected()[0] ?? first
+          if (row !== undefined) pane.select([row.path])
           break
+        }
         case 'places':
           if (compact()) setPlacesDrawer(true)
           break
@@ -1753,6 +1777,8 @@ export function App(): JSX.Element {
           <Preview
             row={previewRow()}
             rawUrl={raw}
+            pictureUrl={picture}
+            readText={readTextFile}
             thumbUrl={thumb}
             onOpen={(r) => void openExternal([r.path])}
             overlay={compact()}
@@ -1785,6 +1811,8 @@ export function App(): JSX.Element {
             items={v().items}
             index={v().index}
             rawUrl={raw}
+            pictureUrl={picture}
+            readText={readTextFile}
             onIndex={(index) => {
               setViewer({ items: v().items, index })
               const current = v().items[index]

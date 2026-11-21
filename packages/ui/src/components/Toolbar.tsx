@@ -60,6 +60,8 @@ export function Button(props: {
   disabled?: boolean | undefined
   type?: 'button' | 'submit' | undefined
   class?: string | undefined
+  /** tooltip / accessible name when the visible text is not enough */
+  title?: string | undefined
   children: JSX.Element
   onClick?: ((e: MouseEvent) => void) | undefined
 }): JSX.Element {
@@ -74,6 +76,7 @@ export function Button(props: {
         'btn--sm': props.small ?? false,
       }}
       disabled={props.disabled ?? false}
+      title={props.title}
       onClick={(e) => props.onClick?.(e)}
     >
       <Show when={props.icon}>{(icon) => <Icon name={icon()} size={14} />}</Show>

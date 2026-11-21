@@ -2,7 +2,7 @@
 // a read-only grid with a frozen header row and column letters, one tab per sheet.
 
 import { For, Show, createMemo, createResource, createSignal, type JSX } from 'solid-js'
-import { formatBytes, rawUrl } from '@ewe/shared'
+import { formatBytes, rawUrl, readText } from '@ewe/shared'
 import { EmptyState, IconButton, ProgressBar, Segmented, Tabs, Toolbar, addRecent } from '@ewe/ui'
 import { fileStat } from '../lib/bridge'
 import { columnName, parseCsv } from '../lib/csv'
@@ -35,14 +35,16 @@ export function SheetView(props: ViewProps): JSX.Element {
     async (path): Promise<Sheet[]> => {
       const stat = await fileStat(path)
       setSize(stat.size)
-      const response = await fetch(rawUrl(props.server, path))
-      if (!response.ok) throw new Error(`Could not read ${baseName(path)}`)
-      void addRecent(path).catch(() => undefined)
       if (isCsv()) {
-        const text = await response.text()
+        // CSV from Excel is often in the system's legacy code page: the core decodes it
+        const { text } = await readText(props.server, path, { max: 32 * 1024 * 1024 })
+        void addRecent(path).catch(() => undefined)
         const table = parseCsv(text, path.toLowerCase().endsWith('.tsv') ? '\t' : undefined)
         return [{ name: baseName(path), rows: table.rows, columns: table.columns }]
       }
+      const response = await fetch(rawUrl(props.server, path))
+      if (!response.ok) throw new Error(`Could not read ${baseName(path)}`)
+      void addRecent(path).catch(() => undefined)
       const XLSX = await import('xlsx')
       const buffer = await response.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array', dense: true, cellDates: true })
@@ -108,7 +110,9 @@ export function SheetView(props: ViewProps): JSX.Element {
     <div class="sh">
       <Toolbar label="Spreadsheet" class="view-toolbar">
         <span class="view-title">
-          <span class="view-name">{baseName(props.path)}</span>
+          <span class="view-name" dir="auto">
+            {baseName(props.path)}
+          </span>
           <span class="view-meta">{metaLine()}</span>
         </span>
         <span class="toolbar-spacer" />

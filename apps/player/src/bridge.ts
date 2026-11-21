@@ -88,8 +88,14 @@ export const listMedia = (paths: string[]): Promise<MediaFile[]> =>
   invoke<MediaFile[]>('list_media', { paths })
 export const subtitleFiles = (video: string): Promise<string[]> =>
   invoke<string[]>('subtitle_files', { video })
-export const subtitleVtt = (path: string): Promise<string> =>
-  invoke<string>('subtitle_vtt', { path })
+/** A subtitle as WebVTT and the encoding it was read in; `encoding` overrides the guess. */
+export interface SubtitleVtt {
+  vtt: string
+  encoding: string
+  confident: boolean
+}
+export const subtitleVtt = (path: string, encoding?: string | null): Promise<SubtitleVtt> =>
+  invoke<SubtitleVtt>('subtitle_vtt', { path, encoding: encoding ?? null })
 export const playlistLoad = (path: string): Promise<PlaylistEntry[]> =>
   invoke<PlaylistEntry[]>('playlist_load', { path })
 export const playlistSave = (path: string, entries: PlaylistEntry[]): Promise<void> =>

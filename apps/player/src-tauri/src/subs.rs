@@ -1,7 +1,11 @@
 //! Subtitles: sidecar files found by name, and SRT / ASS / SSA turned into WebVTT, the
-//! only format `<track>` takes.
+//! only format `<track>` takes. The bytes go through the core's decoder
+//! (`ewe_app_core::text`): Windows-1251 Russian, Shift_JIS Japanese, GBK, Big5, EUC-KR,
+//! Arabic, Greek, Hebrew, Turkish… read right, helped by the language in the file name.
 
 use std::path::{Path, PathBuf};
+
+use serde::Serialize;
 
 pub const EXTENSIONS: &[&str] = &["srt", "vtt", "ass", "ssa", "sub"];
 
@@ -40,22 +44,47 @@ pub fn sidecars(video: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Bytes → text: UTF-8 (BOM dropped) or, failing that, Windows-1252-ish Latin-1.
-pub fn decode(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    match std::str::from_utf8(bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => bytes.iter().map(|&b| b as char).collect(),
-    }
+/// Bytes of a text file → text in whatever encoding it was written: the language tag
+/// in its name (`Movie.ru.srt`), else the system language, guides the guess.
+pub fn decode_file(
+    path: &Path,
+    bytes: &[u8],
+    encoding: Option<&str>,
+) -> ewe_app_core::text::Decoded {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let hint = ewe_app_core::text::language_in_name(&name).or_else(ewe_app_core::text::locale_hint);
+    ewe_app_core::text::decode_with(bytes, encoding, hint.as_deref(), true)
 }
 
-/// Read a subtitle file and return WebVTT.
-pub fn to_vtt(path: &Path) -> std::io::Result<String> {
-    let text = decode(&std::fs::read(path)?);
-    Ok(match ext_of(path).as_str() {
-        "vtt" => ensure_vtt_header(&text),
-        "ass" | "ssa" => ass_to_vtt(&text),
-        _ => srt_to_vtt(&text),
+/// A subtitle as WebVTT, with the encoding it was read in (for the Encoding menu).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleVtt {
+    pub vtt: String,
+    pub encoding: String,
+    pub confident: bool,
+}
+
+/// Read a subtitle file and return WebVTT; `encoding` forces one (a WHATWG label),
+/// `None` or "auto" detects it.
+pub fn to_vtt(path: &Path, encoding: Option<&str>) -> std::io::Result<SubtitleVtt> {
+    let decoded = decode_file(path, &std::fs::read(path)?, encoding);
+    let text = decoded
+        .text
+        .strip_prefix('\u{FEFF}')
+        .unwrap_or(&decoded.text);
+    let vtt = match ext_of(path).as_str() {
+        "vtt" => ensure_vtt_header(text),
+        "ass" | "ssa" => ass_to_vtt(text),
+        _ => srt_to_vtt(text),
+    };
+    Ok(SubtitleVtt {
+        vtt,
+        encoding: decoded.encoding,
+        confident: decoded.confident,
     })
 }
 
@@ -350,10 +379,78 @@ mod tests {
         );
     }
 
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../crates/core/tests/fixtures/text")
+                .join(name),
+        )
+        .unwrap()
+    }
+
+    /// Each fixture (one subtitle written by Python's codecs in every encoding) as a
+    /// sidecar next to a video: the WebVTT says what the UTF-8 original says.
+    #[test]
+    fn subtitles_in_every_encoding_become_the_same_vtt() {
+        let dir = tempfile::tempdir().unwrap();
+        let cases = [
+            ("ru", "ru.cp1251.srt", "windows-1251"),
+            ("ru", "ru.utf16le-bom.srt", "UTF-16LE"),
+            ("ar", "ar.cp1256.srt", "windows-1256"),
+            ("ar", "ar.utf8-bom.srt", "UTF-8"),
+            ("el", "el.cp1253.srt", ""),
+            ("he", "he.cp1255.srt", "windows-1255"),
+            ("tr", "tr.cp1254.srt", "windows-1254"),
+            ("zh", "zh.gbk.srt", "GBK"),
+            ("zh", "zh.gb18030.srt", "GBK"),
+            ("zh-TW", "zh-TW.big5.srt", "Big5"),
+            ("ja", "ja.shift_jis.srt", "Shift_JIS"),
+            ("ja", "ja.utf16be-bom.srt", "UTF-16BE"),
+            ("ko", "ko.euc-kr.srt", "EUC-KR"),
+            ("fr", "fr.latin1.srt", "windows-1252"),
+            ("fr", "fr.utf16le.srt", "UTF-16LE"),
+            ("ka", "ka.utf8.srt", "UTF-8"),
+        ];
+        for (lang, file, encoding) in cases {
+            let want =
+                srt_to_vtt(&String::from_utf8(fixture(&format!("{lang}.utf8.srt"))).unwrap());
+            // named the way people name them, and with no language in the name at all
+            for name in [format!("Film.{lang}.srt"), "Film.srt".to_string()] {
+                let path = dir.path().join(&name);
+                std::fs::write(&path, fixture(file)).unwrap();
+                let got = to_vtt(&path, None).unwrap();
+                assert_eq!(got.vtt, want, "{file} as {name}: read as {}", got.encoding);
+                if !encoding.is_empty() {
+                    assert_eq!(got.encoding, encoding, "{file} as {name}");
+                }
+            }
+        }
+        // a wrong guess can be corrected from the menu
+        let path = dir.path().join("Film.srt");
+        std::fs::write(&path, fixture("ru.cp1251.srt")).unwrap();
+        let koi = to_vtt(&path, Some("koi8-r")).unwrap();
+        assert_eq!(koi.encoding, "KOI8-R");
+        assert!(!koi.vtt.contains("Привет"));
+        assert!(
+            to_vtt(&path, Some("windows-1251"))
+                .unwrap()
+                .vtt
+                .contains("Привет")
+        );
+    }
+
     #[test]
     fn decodes_latin1_and_finds_sidecars() {
-        assert_eq!(decode(b"caf\xE9"), "café");
-        assert_eq!(decode("\u{FEFF}ok".as_bytes()), "ok");
+        let latin = decode_file(
+            Path::new("/x/a.srt"),
+            b"caf\xE9 au lait, cr\xE8me br\xFBl\xE9e",
+            None,
+        );
+        assert_eq!(latin.text, "café au lait, crème brûlée");
+        assert_eq!(
+            decode_file(Path::new("/x/a.srt"), "\u{FEFF}ok".as_bytes(), None).text,
+            "ok"
+        );
         let dir = tempfile::tempdir().unwrap();
         let video = dir.path().join("Movie Night.mkv");
         for n in [
@@ -384,8 +481,9 @@ mod tests {
         )
         .unwrap();
         assert!(
-            to_vtt(&dir.path().join("plain.vtt"))
+            to_vtt(&dir.path().join("plain.vtt"), None)
                 .unwrap()
+                .vtt
                 .starts_with("WEBVTT\n\n00:00")
         );
     }

@@ -8,10 +8,12 @@ use tauri::{AppHandle, Emitter, State};
 use crate::folder::MediaFile;
 use crate::inhibit::Inhibitor;
 use crate::library::{Library, SharedLibrary, Track};
+use crate::links::ResolvedLink;
 use crate::mpris::{Mpris, MprisUpdate};
 use crate::playlist::PlaylistEntry;
 use crate::probe::ProbedStream;
 use crate::recents::RecentItem;
+use crate::support::MediaSupport;
 
 /// Where the library lives (one place to override in tests).
 pub struct Roots(pub Vec<PathBuf>);
@@ -151,6 +153,46 @@ pub async fn probe_media(target: String) -> Result<Vec<ProbedStream>, String> {
     tauri::async_runtime::spawn_blocking(move || crate::probe::probe(&target))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// What this machine can decode and run (gst-libav, yt-dlp, mpv), detected once.
+#[tauri::command]
+pub async fn media_support() -> MediaSupport {
+    tauri::async_runtime::spawn_blocking(crate::support::cached)
+        .await
+        .unwrap_or(MediaSupport {
+            libav: true,
+            ytdlp: false,
+            mpv: false,
+        })
+}
+
+/// What to play for an http(s) link: the link itself, a stream yt-dlp found on the page, a
+/// playlist's entries, or why there is nothing (see links.rs).
+#[tauri::command]
+pub async fn resolve_link(url: String) -> ResolvedLink {
+    let fallback = url.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::links::resolve(&url))
+        .await
+        .unwrap_or_else(|e| ResolvedLink {
+            kind: "failed".into(),
+            url: fallback,
+            problem: Some("error".into()),
+            message: Some(e.to_string()),
+            ..Default::default()
+        })
+}
+
+/// A web page in ewe Browser.
+#[tauri::command]
+pub fn open_in_browser(url: String) -> Result<(), String> {
+    crate::links::open_in_browser(&url)
+}
+
+/// A link or a file in mpv (the fallback for what WebKit cannot stream).
+#[tauri::command]
+pub fn open_in_mpv(target: String) -> Result<(), String> {
+    crate::links::open_in_mpv(&target)
 }
 
 #[derive(Serialize)]

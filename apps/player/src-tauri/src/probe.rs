@@ -63,24 +63,24 @@ pub fn parse_ffprobe(json: &[u8]) -> Vec<ProbedStream> {
         .unwrap_or_default()
 }
 
-/// Run ffprobe on a path or URL (10 s cap). Err when ffprobe is not installed.
+/// Run ffprobe on a path or URL (10 s cap for a file, 5 s for a link — the error page waits
+/// for it). Err when ffprobe is not installed.
 pub fn probe(target: &str) -> Result<Vec<ProbedStream>, String> {
-    let mut child = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_streams",
-            "-i",
-            target,
-        ])
+    let remote = crate::links::is_web(target);
+    let mut cmd = Command::new("ffprobe");
+    cmd.args(["-v", "error", "-print_format", "json", "-show_streams"]);
+    if remote {
+        // a stalled server must not hold the read past the cap (microseconds)
+        cmd.args(["-rw_timeout", "4000000"]);
+    }
+    let mut child = cmd
+        .args(["-i", target])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("ffprobe: {e}"))?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + Duration::from_secs(if remote { 5 } else { 10 });
     let mut stdout = child.stdout.take();
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();

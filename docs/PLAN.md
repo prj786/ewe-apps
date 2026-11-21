@@ -118,7 +118,13 @@ sync glyphs + "Keep in your account…"), then add:
   keys drive it. Inhibit idle while a video plays (D-Bus `org.freedesktop.ScreenSaver` Inhibit
   or the portal).
 - Keys: Space/K, ←/→ 5 s, J/L 10 s, ↑/↓ volume, M, F, C subtitles, [ ] speed, N/P next/prev, Esc.
-- If GStreamer cannot decode a file, say which codec is missing in plain words.
+- If GStreamer cannot decode a file, say which codec is missing in plain words — and blame
+  gst-libav only when it really is missing (`media_support`); a web page is called a web page.
+- Links to pages (YouTube, Twitch, news sites…): yt-dlp finds the stream, the HLS master /
+  progressive file / DASH manifest plays in WebKit; title, picture and length in the queue,
+  header and MPRIS; "Open in ewe Browser" / "Open in mpv" when it cannot.
+- Audio and subtitle tracks in their own words ("Русский", "ქართული"); preferred audio and
+  subtitle language (default the system's), picked when a file has several.
 
 ## ewe Viewer (replaces Zathura and imv)
 
@@ -200,6 +206,15 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       lofty scan), MPRIS `org.mpris.MediaPlayer2.ewe-player`, idle inhibit, codec errors in words.
       Open: real-machine check (Hyprland float rule for the mini window, media keys through the dock,
       VA-API on the owner's GPU), gst-libav lands with ewe 0.44.
+- [x] ewe Player links + honest errors + track languages — 2026-11-21 (branch `feat/player-links`,
+      wave A1/A2/A6): `media_support` (gst-libav / yt-dlp / mpv), `resolve_link` (yt-dlp `-J` →
+      HLS master, progressive, DASH; playlists expand into the queue), the error page says "web
+      page" / "locked (DRM)" / "needs gst-libav" (only when missing) / codec in words, with Open in
+      ewe Browser / Open in mpv / Try again; links play without `crossorigin` (CDNs send no CORS);
+      track menus in native names + preferred languages; bottom subtitles ride above the visible
+      control bar. Spike results in AGENTS.md "Links". Not done: the ffmpeg remux route for sites
+      that only offer separate video + audio files (none of the tested ones); Vimeo serves DRM or
+      blocks anonymous clients; drops of links from a browser were not exercised headless.
 - [x] packaging + CI + release workflow — 2026-11-19 (desktop entries, icons, PKGBUILD, ci.yml, release.yml; the GitHub repo and the first tag are the owner's call)
 - [x] ewe package diet, mime defaults, shell references (+ Settings → Default apps rows)
 - [x] ewe-repo (Reversal dedupe via hardlink, publish ewe-apps, gate blacklists nvidia-utils)

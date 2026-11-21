@@ -287,15 +287,54 @@ src/store.ts           localStorage `ewe.player.state` (mode, video prefs, music
 src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+size), subs.rs
                        (sidecars, SRT/ASS/SSA → VTT), playlist.rs (M3U), folder.rs, mpris.rs
                        (mpris-server, bus name org.mpris.MediaPlayer2.ewe-player), inhibit.rs
-                       (org.freedesktop.ScreenSaver, hypridle honours it), probe.rs (ffprobe),
-                       shots.rs (ffmpeg frame → ~/Pictures/Screenshots), recents.rs, userdirs.rs
+                       (org.freedesktop.ScreenSaver, hypridle honours it), probe.rs (ffprobe; 5 s
+                       for a link), shots.rs (ffmpeg frame → ~/Pictures/Screenshots), recents.rs,
+                       userdirs.rs, support.rs (`media_support`: gst-libav / yt-dlp / mpv, once),
+                       links.rs (`resolve_link`: what a web link plays as; `open_in_browser`,
+                       `open_in_mpv`)
+packages/shared        player.ts (MediaItem with a link's title/thumbnail/duration, itemTitle,
+                       decodeFailureMessage → PlayFailure {kind, actions}), links.ts (ResolvedLink,
+                       MediaSupport, isDirectMediaUrl), languages.ts (ISO 639-1/2 → native names,
+                       trackLabel, preferred-language rules)
 ```
 
 - **argv**: files, folders, `.m3u`, `http(s)://` URLs (`Launch.urls`); `--enqueue` appends to the
   running instance instead of replacing; `--scene=<name>` is the screenshot hook (`controls`,
   `subs-menu`, `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
-  `music-now`, `music-playing`), `--shot-width=` as in Files. `$EWE_MUSIC_DIR` overrides the
+  `music-now`, `music-playing`), `--shot-width=` as in Files. `ewe-player <page-url>` is the
+  public way to play a web page (ewe Browser's "Play in ewe Player" and Shaun call it); a second
+  launch forwards it to the running window. `$EWE_MUSIC_DIR` overrides the
   music root. Music scenes need `SHOT_WAIT=6` on a fresh home (the first scan).
+- **Links** (`links.rs`, spike 2026-11-21 in the wave scratchpad `player/SPIKE.md`): a link
+  whose path names media (`.mp4`, `.m3u8`, `.mpd`…) or that answers `video/*`, `audio/*`, an HLS
+  or DASH type (curl, 6 s) plays as it is. Anything else goes to `yt-dlp -J --no-playlist
+--flat-playlist` (60 s cap) and `pick()` chooses, in order: the **HLS master** `manifest_url`
+  holding video + audio (YouTube's `hls_variant` with separate audio renditions plays through
+  WebKit's legacy `hlsdemux`, seeks), one **progressive** file with both (Twitch clips, YouTube
+  `18`; ≤ 1080 lines, mp4/H.264 first), a muxed HLS variant, a **DASH** `.mpd` (`dashdemux`; the
+  BBC). Split https video + audio only → `unplayable` (the page offers mpv); `has_drm` → `drm`
+  (Vimeo's anonymous player API serves FairPlay `SAMPLE-AES`; vimeo.com wants a login, other ids a
+  TLS fingerprint python-curl_cffi would fake). A playlist page becomes queue entries. The webview
+  resolves a link only when it becomes current ("Getting the video…"), caches it an hour, asks
+  again once when a stream fails (googlevideo URLs expire after ~6 h). `EWE_PLAYER_YTDLP=<path>`
+  runs another yt-dlp (one unpacked from the package for tests); a missing path = not installed.
+  The Arch `yt-dlp` pulls `yt-dlp-ejs` + `deno` (YouTube's n-challenge); no remux route yet.
+- **Errors** (`decodeFailureMessage` in `@ewe/shared`, pure + tested): a web page with no video,
+  "needs yt-dlp", DRM, yt-dlp's own sentence ("Private video."), gst-libav _only when_
+  `media_support` says it is missing (`EWE_PLAYER_LIBAV=0|1` forces the answer; hiding the
+  plugin with `GST_PLUGIN_SYSTEM_PATH` makes it honest), else the codec in words and "refused".
+  Actions: Open with another app (files), Open in ewe Browser (`ewe-browser <url>`, else
+  xdg-open), Open in mpv (only when mpv is on PATH), Try again, Next.
+- **Languages**: track menus say "English", "Русский · Commentary", "ქართული" (`trackLabel`; the
+  title is dropped when it only repeats the language). `VideoPrefs.audioLanguage` (`auto` = the
+  system's) and `subtitleLanguage` (`auto` / `off` / a code) live in `ewe.player.state`; the
+  "Preferred language" submenus of the audio and subtitle menus set them. A file with several
+  audio tracks gets the preferred one; subtitles come on by themselves only when the sound is in
+  another language (or unknown), in the preferred language, else an untagged sidecar
+  (`Movie.srt`). The system language is `navigator.language`, which WebKit takes from the
+  _installed_ locale (`setlocale`): `LANG=de_DE.UTF-8` on a box without that locale reads as
+  en-US — build one with `localedef -i de_DE -f UTF-8 <dir>/de_DE.UTF-8` and pass `LOCPATH=<dir>`
+  (shot.sh passes it).
 - **Narrow windows**: the music nav is a labelled column, an icon rail below 720 (labels as
   tooltips) and a segmented control over the list below 520 (Rescan moves into the ⋯ menu, the
   bar keeps the mute button only). The video bar below 560 (`narrowBar`, the stage's width, not
@@ -314,6 +353,13 @@ ewe-player status/position/metadata` inside it never touches the owner's session
   (the player says so); WMV/WMA and ALAC fail with the plain-words page. With the extracted
   gst-libav all 26 rows play (`avdec_aac`, `avdec_wmv2`, `avdec_alac`…; VA decoders still win for
   H.264/HEVC). ewe 0.44 ships gst-libav.
+- **Links** (2026-11-21, release build, headless, yt-dlp 2026.10.26 unpacked, MPRIS position read
+  twice 3 s apart, then `playerctl position T`): YouTube `watch?v=` (HLS master, `avdec_aac` +
+  `vah264dec`, 300 → 301.5), Twitch VOD (3000 → 3001.5) and clip, BBC News page (HLS), a direct
+  CDN `.mp4` without CORS, an M3U of two page links, `ewe-player <url>` forwarded by a second
+  launch — all advance. One YouTube start in nine stalled with no error (fragments never came):
+  a link that has loaded nothing after 20 s is asked for again once, then gets the
+  "connection broke" page (`STALL_MS`). Vimeo: no anonymous route (DRM / login).
 
 ## Verify (do this before reporting)
 
@@ -423,6 +469,21 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
   before WebKit starts (`webkit_media_env()` in lib.rs); any app that plays long media through
   the server needs the same. `WEBKIT_GST_ENABLE_HLS_SUPPORT=1` is needed for `.m3u8` URLs.
   `GST_DEBUG=webkitmediaplayer:6,downloadbuffer:5` is how to see it.
+- **A `crossorigin` `<video>` cannot play links**: the CDNs (googlevideo, Twitch, BBC…) send no
+  `Access-Control-Allow-Origin`, so every remote load failed as "format not supported" — the
+  owner's "Cannot play watch" page. Only the loopback server's files get `crossorigin`; links stay
+  at ≤ 100 % volume (Web Audio plays a cross-origin source as silence), and a link that follows a
+  boosted file gets a fresh `<video>` (once captured by `createMediaElementSource` an element
+  only plays through the graph).
+- **WebKit's automatic caption selection** flips a track we set to `showing` back off when more
+  tracks arrive (in-band tracks after the sidecars): auto-picked subtitles never drew. The
+  textTracks `change` event re-applies our choice (`applySubs` writes only real changes).
+- Subtitles at the bottom sat under the control bar: `video::-webkit-media-text-track-container`
+  takes a `transform` in WebKitGTK and inherits custom properties from `.vp`, so
+  `--vp-cue-lift` (bar height + a margin, 0 when `controls-hidden`) slides the cue line up and
+  down with a transition. `cue.line` would jump and re-lay every cue.
+- A server that answers headers and then never sends a byte froze the whole WebProcess (no
+  paint, no JS) in a test; one that never answers at all is caught by the stall watchdog.
 - Headless cage has no audio server: GStreamer falls back to a fake sink, audio files still
   play and advance (good for the matrix) but nothing is audible. VA-API decoding works there
   (`GST_DEBUG=GST_ELEMENT_FACTORY:4` shows `vah264dec` / `vah265dec` being created).

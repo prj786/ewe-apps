@@ -14,8 +14,12 @@
 # SHOT_KEEP=1 leaves the app running (for curl against the media server) until
 # the file $OUT.done appears — see AGENTS.md. EWE_APPS_MEDIA_SERVER_FILE=<path> makes
 # the app write its media server's {port, token} there (for curl). EWE_MUSIC_DIR,
-# GST_PLUGIN_PATH and GST_DEBUG pass through (ewe Player: a private music root, an
-# extracted gst-libav, decoder traces in <out>.log).
+# GST_PLUGIN_PATH, GST_PLUGIN_SYSTEM_PATH, GST_REGISTRY and GST_DEBUG pass through (ewe
+# Player: a private music root, an extracted gst-libav or a plugin dir without it, decoder
+# traces in <out>.log), and EWE_PLAYER_YTDLP / EWE_PLAYER_LIBAV (a yt-dlp that is not
+# installed, an answer for "is gst-libav there"). LOCPATH too: a locale built with
+# `localedef -i ru_RU -f UTF-8 <dir>/ru_RU.UTF-8` makes LANG=ru_RU.UTF-8 real for WebKit
+# (navigator.language) without generating it system-wide.
 set -euo pipefail
 bin=$1; theme=$2; out=$3; shift 3
 [ -x "$bin" ] || { echo "no binary $bin" >&2; exit 1; }
@@ -35,6 +39,9 @@ env -i HOME="$HOME" PATH="$PATH" XDG_RUNTIME_DIR="$rt" WLR_BACKENDS=headless WLR
   SHOT_WAIT="${SHOT_WAIT:-1.5}" SHOT_KEEP="${SHOT_KEEP:-}" OUT="$out" \
   EWE_APPS_MEDIA_SERVER_FILE="${EWE_APPS_MEDIA_SERVER_FILE:-}" \
   EWE_MUSIC_DIR="${EWE_MUSIC_DIR:-}" GST_PLUGIN_PATH="${GST_PLUGIN_PATH:-}" GST_DEBUG="${GST_DEBUG:-}" GST_DEBUG_NO_COLOR=1 \
+  ${GST_PLUGIN_SYSTEM_PATH:+GST_PLUGIN_SYSTEM_PATH="$GST_PLUGIN_SYSTEM_PATH"} ${GST_REGISTRY:+GST_REGISTRY="$GST_REGISTRY"} \
+  EWE_PLAYER_YTDLP="${EWE_PLAYER_YTDLP:-}" EWE_PLAYER_LIBAV="${EWE_PLAYER_LIBAV:-}" \
+  ${LOCPATH:+LOCPATH="$LOCPATH"} \
   dbus-run-session -- cage -- bash -c '
     "$0" "$@" > "$OUT.log" 2>&1 &
     app=$!

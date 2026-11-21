@@ -33,12 +33,16 @@ depends=(
   'gst-plugins-ugly'
   'gst-libav'
   'gst-plugin-va'
+  # ewe Player plays the video on a web page (YouTube, Twitch, news sites…): yt-dlp
+  # finds the stream (it pulls yt-dlp-ejs + deno, which YouTube's challenge needs)
+  'yt-dlp'
   'ffmpegthumbnailer'       # video thumbnails into the freedesktop cache
   'libarchive'              # bsdtar: list / extract / compress archives
   '7zip'                    # 7z archives
 )
 optdepends=(
   'ewe: the desktop these are the apps of (theme-tokens.json, ewe-conf)'
+  'mpv: "Open in mpv" when ewe Player cannot stream a site'
   'plocate: "Search everywhere" in ewe Files'
   'unarchiver: RAR archives bsdtar cannot open (unar, lsar)'
 )

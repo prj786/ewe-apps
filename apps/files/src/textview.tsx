@@ -109,6 +109,28 @@ const BY_EXTENSION: Record<string, keyof typeof LANGUAGES> = {
 
 const MAX_BYTES = 2 * 1024 * 1024
 
+// Every block of a Markdown document reads in its own direction: an Arabic or Hebrew
+// paragraph, item or heading right to left, an English one left to right.
+const BIDI_BLOCKS = new Set([
+  'P',
+  'LI',
+  'UL',
+  'OL',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'BLOCKQUOTE',
+  'TABLE',
+  'TD',
+  'TH',
+  'DL',
+  'DT',
+  'DD',
+])
+
 export function languageFor(name: string): keyof typeof LANGUAGES | null {
   return BY_EXTENSION[extensionOf(name)] ?? null
 }
@@ -168,6 +190,8 @@ export function TextView(props: {
     const html = marked.parse(text() ?? '', { async: false, gfm: true })
     const toRaw = props.rawUrl
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (BIDI_BLOCKS.has(node.tagName) && !node.hasAttribute('dir'))
+        node.setAttribute('dir', 'auto')
       if (node.tagName !== 'IMG') return
       const src = node.getAttribute('src') ?? ''
       if (src !== '' && !/^[a-z]+:/i.test(src))

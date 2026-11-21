@@ -14,6 +14,7 @@ import {
   createResource,
   createSignal,
   on,
+  untrack,
   type JSX,
 } from 'solid-js'
 import DOMPurify from 'dompurify'
@@ -67,7 +68,7 @@ import { fileStat, openExternal } from '../lib/bridge'
 import { inTextInput, isMod, useKeys } from '../lib/keys'
 import { baseName, dirName, docKind } from '../lib/kinds'
 import { getSetting, recallPosition, savePosition, setSetting } from '../lib/store'
-import { hasFlag } from '../lib/flags'
+import { flagValue, hasFlag } from '../lib/flags'
 import type { ViewProps } from './types'
 
 const LANGUAGES = {
@@ -149,6 +150,28 @@ const BY_EXTENSION: Record<string, keyof typeof LANGUAGES> = {
 }
 
 const MAX_BYTES = 2 * 1024 * 1024
+
+// Every block of a Markdown document reads in its own direction: an Arabic or Hebrew
+// paragraph, item or heading right to left, an English one left to right.
+const BIDI_BLOCKS = new Set([
+  'P',
+  'LI',
+  'UL',
+  'OL',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'BLOCKQUOTE',
+  'TABLE',
+  'TD',
+  'TH',
+  'DL',
+  'DT',
+  'DD',
+])
 const FONT_STEPS = [11, 12, 13, 14, 16, 18, 20, 24]
 
 export function languageFor(name: string): keyof typeof LANGUAGES | null {
@@ -194,6 +217,12 @@ export function TextView(props: ViewProps): JSX.Element {
     on(
       () => props.path,
       (path) => {
+        // `--encoding=windows-1251` reads the files of that command line so (not saved)
+        const flagged = flagValue(props.flags ?? [], 'encoding')
+        if (flagged !== null && flagged !== '') {
+          setChosen(flagged === 'auto' ? null : flagged)
+          return
+        }
         void recallPosition(path).then((saved) =>
           setChosen(
             saved?.encoding === undefined || saved.encoding === 'auto' ? null : saved.encoding,
@@ -226,6 +255,19 @@ export function TextView(props: ViewProps): JSX.Element {
     },
   )
   const text = () => file()?.text
+
+  // `--encoding-menu`: the screenshot hook opens the menu once the text is there
+  let menuHook = untrack(() => hasFlag(props.flags ?? [], 'encoding-menu'))
+  createEffect(
+    on(file, (read) => {
+      if (!menuHook || read === undefined) return
+      menuHook = false
+      requestAnimationFrame(() => {
+        const r = document.querySelector('.tv-encoding')?.getBoundingClientRect()
+        if (r !== undefined) setEncodingMenu({ x: r.right, y: r.bottom + 4 })
+      })
+    }),
+  )
 
   const chooseEncoding = (encoding: string | null) => {
     setChosen(encoding)
@@ -278,6 +320,8 @@ export function TextView(props: ViewProps): JSX.Element {
     const dir = dirName(props.path)
     const html = marked.parse(text() ?? '', { async: false, gfm: true })
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (BIDI_BLOCKS.has(node.tagName) && !node.hasAttribute('dir'))
+        node.setAttribute('dir', 'auto')
       if (node.tagName === 'A') {
         node.setAttribute('rel', 'noopener')
         return

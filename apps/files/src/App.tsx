@@ -1309,7 +1309,11 @@ export function App(): JSX.Element {
           pane.go(TRASH_PATH)
           break
         case 'quicklook': {
-          const img = rows.find((r) => r.name === 'sunset.png' || r.name === 'README.md') ?? first
+          // the row `--select=` picked, else the fixture's usual suspects
+          const img =
+            pane.selected()[0] ??
+            rows.find((r) => r.name === 'sunset.png' || r.name === 'README.md') ??
+            first
           if (img !== undefined) {
             pane.select([img.path])
             quickLook(pane, img)
@@ -1350,6 +1354,9 @@ export function App(): JSX.Element {
             }
           })
           break
+        case 'grid':
+          setPref(pane.path(), { view: 'grid' })
+          break
         case 'grid-preview':
           setPref(pane.path(), { view: 'grid' })
           showPreview()
@@ -1359,10 +1366,12 @@ export function App(): JSX.Element {
           pane.selectAll()
           after(100, () => setDialog({ kind: 'rename-many', entries: pane.selected(), pane }))
           break
-        case 'preview':
+        case 'preview': {
           showPreview()
-          if (first !== undefined) pane.select([first.path])
+          const row = pane.selected()[0] ?? first
+          if (row !== undefined) pane.select([row.path])
           break
+        }
         case 'places':
           if (compact()) setPlacesDrawer(true)
           break

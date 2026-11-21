@@ -988,6 +988,17 @@
   user-select: text;
 }
 
+/* Markdown blocks carry dir="auto" (the sanitizer hook in the text view): an Arabic or
+   Hebrew paragraph reads right to left and lines up on the right, an English one stays
+   left. Plain text and code: every line takes its direction from its own text. */
+.tv-markdown [dir='auto']:not(th) {
+  text-align: start;
+}
+
+.tv-source {
+  unicode-bidi: plaintext;
+}
+
 .tv-markdown h1,
 .tv-markdown h2,
 .tv-markdown h3 {

@@ -105,8 +105,20 @@
   --tracking-snug: -0.01em;
   --tracking-normal: 0;
   --tracking-wide: 0.06em;
-  --font-sans: 'Geist', 'Noto Sans Georgian', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', 'Noto Sans Georgian', ui-monospace, monospace;
+  /* the script faces: theme/parse.ts SCRIPT_FONTS (why: there) */
+  --font-sans:
+    'Geist', 'Noto Sans Arabic UI', 'Noto Sans Hebrew', 'Noto Sans Georgian', 'Noto Sans Armenian',
+    'Noto Sans Devanagari UI', 'Noto Sans Bengali UI', 'Noto Sans Gurmukhi UI',
+    'Noto Sans Gujarati UI', 'Noto Sans Tamil UI', 'Noto Sans Telugu UI', 'Noto Sans Kannada UI',
+    'Noto Sans Malayalam UI', 'Noto Sans Sinhala UI', 'Noto Sans Thai', 'Noto Sans Lao',
+    'Noto Sans Khmer', 'Noto Sans Myanmar', 'Noto Sans Ethiopic', system-ui, sans-serif;
+  --font-mono:
+    'Geist Mono', 'Noto Sans Arabic UI', 'Noto Sans Hebrew', 'Noto Sans Georgian',
+    'Noto Sans Armenian', 'Noto Sans Devanagari UI', 'Noto Sans Bengali UI',
+    'Noto Sans Gurmukhi UI', 'Noto Sans Gujarati UI', 'Noto Sans Tamil UI', 'Noto Sans Telugu UI',
+    'Noto Sans Kannada UI', 'Noto Sans Malayalam UI', 'Noto Sans Sinhala UI', 'Noto Sans Thai',
+    'Noto Sans Lao', 'Noto Sans Khmer', 'Noto Sans Myanmar', 'Noto Sans Ethiopic', ui-monospace,
+    monospace;
 
   --space-xxs: 2px;
   --space-xs: 4px;

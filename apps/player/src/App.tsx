@@ -16,6 +16,7 @@ import {
   compareTracks,
   dirName,
   isRemoteUrl,
+  linksInText,
   rememberPosition,
   sortMedia,
   toMediaItem,
@@ -183,7 +184,11 @@ export function App(): JSX.Element {
         const entries = await playlistLoad(list)
         for (const e of entries) {
           const item = toMediaItem(e.path)
-          if (item !== null) items.push(item)
+          if (item === null) continue
+          // a link's #EXTINF title is all it has until it is opened
+          if (item.remote && e.title !== null && e.title.trim() !== '') item.title = e.title
+          if (item.remote && e.duration !== null && e.duration > 0) item.duration = e.duration
+          items.push(item)
         }
       } catch {
         toast(`Could not read ${baseName(list)}`, { kind: 'danger' })
@@ -443,7 +448,10 @@ export function App(): JSX.Element {
         else if (e.payload.type === 'leave') setDropping(false)
         else if (e.payload.type === 'drop') {
           setDropping(false)
-          void openTargets(e.payload.paths, [], false)
+          // a link dragged out of a browser arrives as a "path" that is a URL
+          const urls = e.payload.paths.filter((p) => isRemoteUrl(p))
+          const paths = e.payload.paths.filter((p) => !isRemoteUrl(p))
+          void openTargets(paths, urls, false)
         }
       })
       .then((off) => {
@@ -467,6 +475,36 @@ export function App(): JSX.Element {
       window.removeEventListener('keydown', onKey)
     })
   })
+
+  // a link dropped as text (selected text, some browsers' tabs): WebKit's own drop, which
+  // Tauri leaves alone because it is no uri-list
+  const onTextDragOver = (e: DragEvent) => {
+    if (e.dataTransfer?.types.includes('text/plain') === true && !e.defaultPrevented)
+      e.preventDefault()
+  }
+  const onTextDrop = (e: DragEvent) => {
+    if (e.defaultPrevented) return // the playlist's own reordering
+    const dt = e.dataTransfer
+    if (dt === null) return
+    const urls = linksInText(dt.getData('text/uri-list') || dt.getData('text/plain'))
+    if (urls.length === 0) return
+    e.preventDefault()
+    setDropping(false)
+    void openTargets([], urls, false)
+  }
+
+  /** the queue learns what a link is (title, picture, length) */
+  const patchItem = (path: string, patch: Partial<MediaItem>) =>
+    setQueue((q) => q.map((i) => (i.path === path ? { ...i, ...patch } : i)))
+  /** a link that was a playlist: its entries take its place */
+  const expandItem = (path: string, entries: MediaItem[]) => {
+    const q = queue()
+    const at = q.findIndex((i) => i.path === path)
+    if (at < 0 || entries.length === 0) return
+    setQueue([...q.slice(0, at), ...entries, ...q.slice(at + 1)])
+    setIndex(at)
+    toast(`${entries.length} videos from the playlist`)
+  }
 
   const appMenu = (): MenuEntry[] => [
     {
@@ -520,7 +558,12 @@ export function App(): JSX.Element {
   ]
 
   return (
-    <div class="app" classList={{ fullscreen: fullscreen(), mini: mini(), dropping: dropping() }}>
+    <div
+      class="app"
+      classList={{ fullscreen: fullscreen(), mini: mini(), dropping: dropping() }}
+      onDragOver={onTextDragOver}
+      onDrop={onTextDrop}
+    >
       <header class="app-header">
         <h1 class="app-name">
           <Icon name="play" />
@@ -594,6 +637,8 @@ export function App(): JSX.Element {
                     setQueue(q)
                     setIndex(i)
                   }}
+                  onItem={patchItem}
+                  onExpand={expandItem}
                   onAddFiles={() => void openFiles()}
                   onAddFolder={() => void openFolder()}
                   onOpenUrl={() => setUrlDialog(true)}
@@ -637,7 +682,7 @@ export function App(): JSX.Element {
       <Dialog
         open={urlDialog()}
         title="Open a web address"
-        description="A direct video or audio link, or an HLS stream (.m3u8)."
+        description="A page with a video on it (YouTube, Twitch, news sites…), or a link to a video, a song or a stream."
         onClose={() => setUrlDialog(false)}
         actions={
           <>

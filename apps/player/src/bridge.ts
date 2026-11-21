@@ -1,7 +1,14 @@
 // The player's own commands (the shared ones are in @ewe/ui's bridge).
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { MusicLibrary, ProbedStream, RepeatMode, Track } from '@ewe/shared'
+import type {
+  MediaSupport,
+  MusicLibrary,
+  ProbedStream,
+  RepeatMode,
+  ResolvedLink,
+  Track,
+} from '@ewe/shared'
 
 export interface Library extends MusicLibrary {
   /** `.m3u` / `.m3u8` files found under the roots */
@@ -88,8 +95,14 @@ export const listMedia = (paths: string[]): Promise<MediaFile[]> =>
   invoke<MediaFile[]>('list_media', { paths })
 export const subtitleFiles = (video: string): Promise<string[]> =>
   invoke<string[]>('subtitle_files', { video })
-export const subtitleVtt = (path: string): Promise<string> =>
-  invoke<string>('subtitle_vtt', { path })
+/** A subtitle as WebVTT and the encoding it was read in; `encoding` overrides the guess. */
+export interface SubtitleVtt {
+  vtt: string
+  encoding: string
+  confident: boolean
+}
+export const subtitleVtt = (path: string, encoding?: string | null): Promise<SubtitleVtt> =>
+  invoke<SubtitleVtt>('subtitle_vtt', { path, encoding: encoding ?? null })
 export const playlistLoad = (path: string): Promise<PlaylistEntry[]> =>
   invoke<PlaylistEntry[]>('playlist_load', { path })
 export const playlistSave = (path: string, entries: PlaylistEntry[]): Promise<void> =>
@@ -114,6 +127,23 @@ export const inhibitIdle = (on: boolean): Promise<boolean> =>
 export const playerPlaces = (): Promise<Places> => invoke<Places>('player_places')
 export const launchWith = (desktopId: string | null, paths: string[]): Promise<void> =>
   invoke<null>('launch_with', { desktopId, paths }).then(() => undefined)
+
+let support: Promise<MediaSupport> | null = null
+/** gst-libav / yt-dlp / mpv on this machine (asked once per run). */
+export const mediaSupport = (): Promise<MediaSupport> => {
+  support ??= invoke<MediaSupport>('media_support').catch(() => {
+    support = null
+    return { libav: true, ytdlp: false, mpv: false }
+  })
+  return support
+}
+/** What to play for an http(s) link (yt-dlp for web pages); never rejects on a bad page. */
+export const resolveLink = (url: string): Promise<ResolvedLink> =>
+  invoke<ResolvedLink>('resolve_link', { url })
+export const openInBrowser = (url: string): Promise<void> =>
+  invoke<null>('open_in_browser', { url }).then(() => undefined)
+export const openInMpv = (target: string): Promise<void> =>
+  invoke<null>('open_in_mpv', { target }).then(() => undefined)
 
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- it types the handler for callers
 function subscribe<T>(name: string, handler: (payload: T) => void): () => void {

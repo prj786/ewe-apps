@@ -28,6 +28,14 @@ body {
   height: 100%;
 }
 
+/* User text — file and folder names, song tags, document titles — carries dir="auto": an
+   Arabic or Hebrew name reads right to left and its ellipsis lands at its own end, while
+   it still lines up with ewe's left-to-right chrome (alignment from the parent, never
+   mirrored). Zero specificity: any rule that sets text-align itself wins. */
+:where([dir='auto']) {
+  text-align: match-parent;
+}
+
 button {
   font: inherit;
   color: inherit;

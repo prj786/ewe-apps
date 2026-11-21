@@ -1,18 +1,20 @@
 //! ewe Player — the window. Everything shared with the other ewe apps (theme, media
 //! server, thumbnails, recent files, mime + apps, single instance) is ewe-app-core; what
 //! is the player's own lives here: the music library scan, subtitles, M3U playlists,
-//! MPRIS, the idle inhibit, ffprobe/ffmpeg helpers.
+//! MPRIS, the idle inhibit, ffprobe/ffmpeg helpers, web links through yt-dlp.
 
 pub mod commands;
 pub mod folder;
 pub mod inhibit;
 pub mod library;
+pub mod links;
 pub mod mpris;
 pub mod playlist;
 pub mod probe;
 pub mod recents;
 pub mod shots;
 pub mod subs;
+pub mod support;
 pub mod userdirs;
 
 use ewe_app_core::AppSpec;
@@ -91,6 +93,10 @@ pub fn run() {
             commands::inhibit_idle,
             commands::player_places,
             commands::hypr_float,
+            commands::media_support,
+            commands::resolve_link,
+            commands::open_in_browser,
+            commands::open_in_mpv,
         ],
         ewe_app_core::RunHooks {
             configure: Some(Box::new(|builder| {

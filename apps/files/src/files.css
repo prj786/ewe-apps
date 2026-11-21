@@ -157,6 +157,13 @@
   cursor: default;
 }
 
+.fm-crumb-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fm-crumb:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
@@ -979,6 +986,17 @@
   font-size: var(--font-size-lg);
   line-height: 1.65;
   user-select: text;
+}
+
+/* Markdown blocks carry dir="auto" (the sanitizer hook in the text view): an Arabic or
+   Hebrew paragraph reads right to left and lines up on the right, an English one stays
+   left. Plain text and code: every line takes its direction from its own text. */
+.tv-markdown [dir='auto']:not(th) {
+  text-align: start;
+}
+
+.tv-source {
+  unicode-bidi: plaintext;
 }
 
 .tv-markdown h1,

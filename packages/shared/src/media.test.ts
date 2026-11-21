@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { coverUrl, rawUrl, thumbSizeFor, thumbUrl } from './media'
+import {
+  coverUrl,
+  needsPictureConversion,
+  pictureUrl,
+  rawUrl,
+  thumbSizeFor,
+  thumbUrl,
+} from './media'
 
 const server = { port: 43210, token: 'abc123' }
 
@@ -34,5 +41,17 @@ describe('thumbSizeFor', () => {
     expect(thumbSizeFor(Math.ceil(126 * 1.8))).toBe(256)
     expect(thumbSizeFor(257)).toBe(512)
     expect(thumbSizeFor(2000)).toBe(512)
+  })
+})
+
+describe('pictureUrl', () => {
+  it('sends phone pictures through the converter and the rest raw', () => {
+    const heic = new URL(pictureUrl(server, '/p/IMG_0001.HEIC'))
+    expect(heic.pathname).toBe('/picture/IMG_0001.HEIC.jpg')
+    expect(heic.searchParams.get('path')).toBe('/p/IMG_0001.HEIC')
+    expect(heic.searchParams.get('t')).toBe('abc123')
+    expect(needsPictureConversion('/p/a.heif')).toBe(true)
+    expect(pictureUrl(server, '/p/a.avif')).toBe(rawUrl(server, '/p/a.avif'))
+    expect(pictureUrl(server, '/p/a.jpg')).toBe(rawUrl(server, '/p/a.jpg'))
   })
 })

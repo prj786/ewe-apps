@@ -1,5 +1,11 @@
 // What the player remembers between runs (localStorage, like ewe Browser's music page).
-import { clampVolume, type RepeatMode, type SavedPosition } from '@ewe/shared'
+import {
+  clampVolume,
+  isLanguagePreference,
+  type LanguagePreference,
+  type RepeatMode,
+  type SavedPosition,
+} from '@ewe/shared'
 
 export type FitMode = 'contain' | 'cover' | 'zoom'
 export type SubSize = 'small' | 'normal' | 'large' | 'huge'
@@ -14,6 +20,10 @@ export interface VideoPrefs {
   subPosition: SubPosition
   panel: boolean
   remainingTime: boolean
+  /** the sound to pick when a file has several: `auto` (the system's language) or a code */
+  audioLanguage: LanguagePreference
+  /** subtitles that come on by themselves: `auto`, `off` or a code */
+  subtitleLanguage: LanguagePreference
 }
 
 export interface MusicPrefs {
@@ -44,6 +54,8 @@ export const DEFAULT_STATE: PlayerState = {
     subPosition: 'bottom',
     panel: false,
     remainingTime: false,
+    audioLanguage: 'auto',
+    subtitleLanguage: 'auto',
   },
   music: { volume: 0.8, repeat: 'off', shuffle: false, queue: [], index: 0, view: 'albums' },
   positions: {},
@@ -88,6 +100,12 @@ export function loadState(): PlayerState {
         subPosition: pick(v.subPosition, ['bottom', 'raised', 'top'], base.video.subPosition),
         panel: v.panel === true,
         remainingTime: v.remainingTime === true,
+        audioLanguage: isLanguagePreference(v.audioLanguage, false)
+          ? v.audioLanguage
+          : base.video.audioLanguage,
+        subtitleLanguage: isLanguagePreference(v.subtitleLanguage, true)
+          ? v.subtitleLanguage
+          : base.video.subtitleLanguage,
       },
       music: {
         volume:

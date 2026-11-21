@@ -1,7 +1,7 @@
 {
   "name": "ewe-viewer",
   "private": true,
-  "version": "0.1.1-beta",
+  "version": "0.2.0-beta",
   "license": "GPL-3.0-only",
   "type": "module",
   "description": "The ewe document and image viewer",

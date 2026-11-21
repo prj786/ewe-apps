@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cssColor, parseEweTokens } from './parse'
+import { SCRIPT_FONTS, cssColor, parseEweTokens, withScriptFonts } from './parse'
 
 const tokens = {
   version: 3,
@@ -31,7 +31,9 @@ describe('parseEweTokens', () => {
     expect(t.base['--control-md']).toBe('28px')
     expect(t.base['--font-size-md']).toBe('16.9px')
     expect(t.base['--line-height-md']).toBe('23.4px')
-    expect(t.base['--font-sans']).toBe('"Geist", system-ui, sans-serif')
+    expect(t.base['--font-sans']).toBe(
+      `"Geist", ${SCRIPT_FONTS.map((f) => `"${f}"`).join(', ')}, system-ui, sans-serif`,
+    )
     expect(t.base['--font-mono']).toBeUndefined()
     expect(t.base['--font-weight-medium']).toBe('500')
     expect(t.base['--dur-fast']).toBe('75ms')
@@ -56,5 +58,19 @@ describe('parseEweTokens', () => {
   it('converts Qt #AARRGGBB colours', () => {
     expect(cssColor('#80ff0000')).toBe('rgba(255, 0, 0, 0.502)')
     expect(cssColor('#eeb407')).toBe('#eeb407')
+  })
+})
+
+describe('withScriptFonts', () => {
+  it('puts the script faces before the first generic family, once', () => {
+    const stack = withScriptFonts('"Geist", "Noto Sans Georgian", system-ui, sans-serif')
+    const families = stack.split(', ')
+    expect(families[0]).toBe('"Geist"')
+    expect(families[1]).toBe('"Noto Sans Georgian"')
+    expect(families[2]).toBe('"Noto Sans Arabic UI"')
+    expect(families.filter((f) => f.includes('Georgian'))).toHaveLength(1)
+    expect(families.indexOf('"Noto Sans Hebrew"')).toBeLessThan(families.indexOf('system-ui'))
+    expect(families.slice(-2)).toEqual(['system-ui', 'sans-serif'])
+    expect(withScriptFonts('Geist Mono')).toMatch(/^Geist Mono, "Noto Sans Arabic UI", /)
   })
 })

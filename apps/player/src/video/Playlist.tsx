@@ -1,5 +1,5 @@
 import { For, Show, createSignal, type JSX } from 'solid-js'
-import { moveItem, stemOf, type MediaItem } from '@ewe/shared'
+import { formatClock, itemTitle, moveItem, stemOf, type MediaItem } from '@ewe/shared'
 import { Button, Icon, IconButton } from '@ewe/ui'
 
 export interface PlaylistProps {
@@ -119,8 +119,16 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                     </Show>
                   </span>
                   <button class="pl-name" title={item.path} onClick={() => props.onPlay(i())}>
-                    <Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />
-                    <span>{item.remote ? item.name : stemOf(item.name)}</span>
+                    <Show
+                      when={item.thumbnail}
+                      fallback={<Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />}
+                    >
+                      {(src) => <img class="pl-thumb" src={src()} alt="" loading="lazy" />}
+                    </Show>
+                    <span dir="auto">{itemTitle(item)}</span>
+                    <Show when={item.duration}>
+                      {(d) => <span class="pl-dur">{formatClock(d())}</span>}
+                    </Show>
                   </button>
                   <IconButton
                     icon="x"
@@ -161,7 +169,7 @@ export function Playlist(props: PlaylistProps): JSX.Element {
                   </span>
                   <button class="pl-name" title={item.path} onClick={() => addSibling(item)}>
                     <Icon name={item.kind === 'audio' ? 'music' : 'film'} size={14} />
-                    <span>{stemOf(item.name)}</span>
+                    <span dir="auto">{stemOf(item.name)}</span>
                   </button>
                 </li>
               )}

@@ -15,7 +15,8 @@ Cargo.toml                          cargo workspace: crates/core, apps/*/src-tau
 packages/shared  @ewe/shared        pure TS, tested with vitest: models (Point/Rect/Size/ThemeTokens),
                                     menu placement, files.ts (FsEntry, places, kinds, sort/filter,
                                     gvfsLabel, sync helpers), music.ts (albums/artists/search/shuffle),
-                                    media.ts (rawUrl/thumbUrl/coverUrl), format.ts, requests.ts (the
+                                    media.ts (rawUrl/thumbUrl/coverUrl/pictureUrl), text.ts (textUrl,
+                                    readText, TEXT_ENCODINGS + their words), format.ts, requests.ts (the
                                     shapes the core returns: Launch, AppInfo, MimeInfo, …)
 packages/ui      @ewe/ui            Solid kit: Icon (Lucide paths inline), Menu (+submenus, swatches),
                                     Switch, Segmented, EmptyState, Dialog, Toast(s), Tooltip, Slider,
@@ -24,7 +25,9 @@ packages/ui      @ewe/ui            Solid kit: Icon (Lucide paths inline), Menu 
                                     theme/ (parseEweTokens, applyTheme, followTheme); app/bridge.ts
                                     (getLaunch, onLaunch, getMediaServer, getAppVersion, addRecent)
 crates/core      ewe-app-core       theme (read + notify watch), server (axum loopback media server),
-                                    thumbs (freedesktop cache), cover (lofty + sidecar), recent
+                                    thumbs (freedesktop cache), text (any encoding → UTF-8: BOM, UTF-8,
+                                    chardetng + encoding_rs), picture (HEIC → cached JPEG; HEIC/AVIF/
+                                    JXL decoded for thumbnails), cover (lofty + sidecar), recent
                                     (recently-used.xbel), mime (GIO), exif (kamadak-exif → ExifInfo),
                                     launch (argv), app (the Tauri builder; `run_with` takes a builder
                                     hook for app plugins), commands (the Tauri commands), xdg
@@ -47,11 +50,11 @@ npx -y pnpm@11.13.0 lint                 # eslint flat config: typescript-eslint
 npx -y pnpm@11.13.0 format               # prettier (format:check in CI)
 npx -y pnpm@11.13.0 test                 # vitest: packages/shared, packages/ui
 npx -y pnpm@11.13.0 test                 # also apps/viewer: memory, csv, exif, flags
-cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif) + the viewer's comics
+cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif, text encodings, HEIC) + the viewer's comics + the player's subtitles in every encoding
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.1.1-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.2.0-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -84,10 +87,42 @@ handler![…])`): `--version` prints JSON and exits 0 (rule 5); `glib::set_prgna
   `rawUrl(server, path)` = `http://127.0.0.1:<port>/raw/<name>?path=…&t=…` (single-range 206,
   `Accept-Ranges`, ETag/304, content types incl. mkv/opus/flac fixes), `thumbUrl(server, path,
 128|256|512)` (freedesktop cache read/write, `image` crate with EXIF orientation,
-  `ffmpegthumbnailer` for video, embedded cover for audio, 3 generations at once), `coverUrl`.
+  `ffmpegthumbnailer` for video, embedded cover for audio, HEIC/AVIF/JPEG XL through
+  `heif-dec`/`djxl`, 3 generations at once), `coverUrl`.
   Only regular files under absolute paths; 403 without the token; the CSP allows
   `http://127.0.0.1:*` for img/media/connect only. `EWE_APPS_MEDIA_SERVER_FILE=<path>` makes the
   app write `{port, token}` there (tests, curl).
+- **Text in any encoding** (`text.rs`, `/text/<name>?path=&t=[&enc=][&max=]`, `readText()` in
+  @ewe/shared): a BOM (UTF-8/16) wins, then valid UTF-8, then BOM-less UTF-16 (NULs in every
+  other byte), else Firefox's `chardetng` guesses with a hint — the language tag in the file
+  name (`Movie.ru.srt` → `ru`) or the system locale (`LC_ALL`/`LC_CTYPE`/`LANG`) mapped to the
+  TLD chardetng weighs — and `encoding_rs` decodes. The route answers UTF-8 with
+  `X-Ewe-Encoding` (WHATWG name), `X-Ewe-Encoding-Confident` (0 = the hint swayed the guess)
+  and `X-Ewe-Truncated`, all three exposed through CORS; `enc=` forces any WHATWG label, `max=`
+  reads a prefix (default 2 MB, at most 32 MB; a character cut in half is dropped). Used by the
+  Viewer's text view / Markdown / CSV, Files' quick look and preview, the Player's subtitles
+  (`subtitle_vtt {path, encoding?}` → `{vtt, encoding, confident}`) and `.m3u` titles. The
+  fixtures (`crates/core/tests/fixtures/text/`, written by Python's codecs with
+  `make_text_fixtures.py`) are one subtitle in cp1251/1253/1254/1255/1256, GBK, GB18030, Big5,
+  Shift_JIS, EUC-KR, Latin-1, UTF-16 with and without a BOM and UTF-8.
+- **Phone pictures** (`picture.rs`, `/picture/<name>?path=&t=`, `pictureUrl()`): WebKitGTK 2.54
+  shows AVIF and JPEG XL itself (libavif, libjxl) but has no HEIF decoder, so `.heic/.heif/.hif`
+  go through `heif-dec -q 92` into `$XDG_CACHE_HOME/ewe-apps/pictures/<md5 uri>-<size>-<mtime>.jpg`
+  (a changed file gets a new copy and the old one goes; least recently used pruned at 512 MB;
+  two conversions at once; 30 s limit per decoder). heif-dec applies the HEIF rotation and
+  writes EXIF orientation 1, so the JPEG is upright and WebKit does not turn it again; the info
+  panel reads EXIF from the original (kamadak-exif reads HEIF). Thumbnails of HEIC/AVIF/JXL
+  decode into a temp PNG (`heif-dec`, `djxl`, `avifdec`, then `magick`), or reuse the viewable
+  copy when the Viewer already made one. `libheif` is a dependency of the package.
+- **User text direction** (L4): every element that shows a name, title or tag (file rows,
+  grid, crumbs, places, tabs, menus, song lists, Now playing, Viewer tabs/toolbars/start
+  screen) carries `dir="auto"`; the kit's base.css gives `:where([dir='auto'])`
+  `text-align: match-parent`, so an Arabic or Hebrew name reads right to left with its ellipsis
+  at its own end but lines up with the left-to-right chrome (never mirrored). Text views use
+  `unicode-bidi: plaintext` per paragraph/line. The font stacks get Noto faces for Arabic,
+  Hebrew, Georgian, Armenian, the Indic scripts, Thai, Lao, Khmer, Myanmar and Ethiopic before
+  `system-ui` (`SCRIPT_FONTS` / `withScriptFonts` in the kit's theme/parse.ts, mirrored in
+  tokens.css); CJK is left to fontconfig (Source Han Sans by language).
 - **Recent files** (`recent.rs`, `addRecent(path, mime?)`): parses `$XDG_DATA_HOME/
 recently-used.xbel`, bumps or adds the entry with this app in `bookmark:applications`
   (`exec="'ewe-viewer %u'"`), prunes entries older than 30 days (GTK's default), writes atomically 0600. ewe Browser's Home and GTK dialogs read it.
@@ -123,14 +158,16 @@ src/views/EpubView.tsx      <foliate-view> from src/vendor/foliate-js (MIT, see 
 src/views/ComicView.tsx     pages from the core (comic_list / comic_page → blob URLs, ±6 cached), one page
                             or a spread (cover alone, right-to-left), fit page / width
 src/views/TextView.tsx      ewe Browser's textview: highlight.js core + 24 languages, marked + DOMPurify,
-                            relative images → raw URLs, first 2 MB, Source / Preview, wrap, text size
+                            relative images → raw URLs, first 2 MB, Source / Preview, wrap, text size;
+                            text from the core's /text in any encoding, the toolbar's encoding button
+                            opens Automatic + TEXT_ENCODINGS (the choice remembered per file)
 src/views/DocxView.tsx      docx-preview (pages, zoom, Ctrl+P prints the document itself)
 src/views/SheetView.tsx     SheetJS for xlsx/xlsm/xls/ods (dense sheets), lib/csv.ts for csv/tsv; column
                             letters, frozen header row, one tab per sheet, first 5000 rows
 src/views/ImageView.tsx     fit / actual / zoom at the cursor / drag, pinch (gesture events), rotate,
                             flip, slideshow, ←/→ through the folder (folder_images), info panel (stat +
                             EXIF rows from lib/exif.ts), copy (wl-copy), set as wallpaper (ewe-conf),
-                            move to Trash (GIO), Open with…; HEIC says so plainly when WebKit can't
+                            move to Trash (GIO), Open with…; HEIC/HEIF through the core's /picture
 src/views/OtherView.tsx     ODT / PPTX / DOC…: type, size, GIO apps, "Open with the default app"
 src/views/Start.tsx         recent documents from recently-used.xbel (recent_documents), thumbnails from
                             the core's cache for pictures and pdf.js' first page for PDFs
@@ -157,7 +194,8 @@ Launch flags (all `--key=value`, for the paths on the same command line): `--pag
 `--sidebar=pages|contents`, `--mode=continuous|single|two`, `--zoom=page-width|page-fit|1.5`,
 `--night`, `--present`, `--fill=field=value` (PDF); `--toc`, `--flow=paged|scrolled`,
 `--theme=auto|light|sepia|dark` (books); `--spread` (comics); `--source` (Markdown); `--sheet=N`
-(spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures). They are also how `scripts/shot.sh`
+(spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures); `--encoding=windows-1251` (text:
+read as that, not remembered), `--encoding-menu` (opens the encoding menu). They are also how `scripts/shot.sh`
 reaches every state headless.
 
 ## ewe Files (`apps/files`, binary `ewe-files-app`)
@@ -240,8 +278,9 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
-- `--shot=list|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
-  puts a fresh window into that state (used for the screenshots); `--shot-width=900` /
+- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
+  puts a fresh window into that state (used for the screenshots; `quicklook` shows the row a
+  `--select=` picked); `--shot-width=900` /
   `--shot-height=600` size the app root like a smaller window inside cage's fixed 1280×720
   output (all three apps: `applyShotSize` in the kit; the root gets `contain: layout`, so
   dialogs and toasts stay inside it — menus still clamp to the 1280 viewport).
@@ -273,7 +312,7 @@ src/App.tsx            mode (Video | Music, a Segmented in the header), opening 
                        (listMedia expands folders; all-audio → the music view, else the video queue
                        + folder siblings), dialogs (plugin-dialog), fullscreen + mini window ops,
                        MPRIS command routing to the active view's Transport, drag and drop, Ctrl+O/L
-src/video/VideoPlayer.tsx  <video crossorigin> + the auto-hiding control bar (seek with buffered
+src/video/VideoPlayer.tsx  <video> (crossorigin for local files only) + the auto-hiding control bar (seek with buffered
                        ranges + hover time, ±10 s, frame step , . , speed [ ], volume 0–150 % via a
                        Web Audio gain above 100 %, subtitles: in-file textTracks + sidecars by name
                        as blob <track>s from `subtitle_vtt`, audioTracks picker, fit/fill/zoom/rotate,
@@ -287,15 +326,55 @@ src/store.ts           localStorage `ewe.player.state` (mode, video prefs, music
 src-tauri/src/         library.rs (lofty scan, index JSON, incremental by mtime+size), subs.rs
                        (sidecars, SRT/ASS/SSA → VTT), playlist.rs (M3U), folder.rs, mpris.rs
                        (mpris-server, bus name org.mpris.MediaPlayer2.ewe-player), inhibit.rs
-                       (org.freedesktop.ScreenSaver, hypridle honours it), probe.rs (ffprobe),
-                       shots.rs (ffmpeg frame → ~/Pictures/Screenshots), recents.rs, userdirs.rs
+                       (org.freedesktop.ScreenSaver, hypridle honours it), probe.rs (ffprobe; 5 s
+                       for a link), shots.rs (ffmpeg frame → ~/Pictures/Screenshots), recents.rs,
+                       userdirs.rs, support.rs (`media_support`: gst-libav / yt-dlp / mpv, once),
+                       links.rs (`resolve_link`: what a web link plays as; `open_in_browser`,
+                       `open_in_mpv`)
+packages/shared        player.ts (MediaItem with a link's title/thumbnail/duration, itemTitle,
+                       decodeFailureMessage → PlayFailure {kind, actions}), links.ts (ResolvedLink,
+                       MediaSupport, isDirectMediaUrl), languages.ts (ISO 639-1/2 → native names,
+                       trackLabel, preferred-language rules)
 ```
 
 - **argv**: files, folders, `.m3u`, `http(s)://` URLs (`Launch.urls`); `--enqueue` appends to the
   running instance instead of replacing; `--scene=<name>` is the screenshot hook (`controls`,
-  `subs-menu`, `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
-  `music-now`, `music-playing`), `--shot-width=` as in Files. `$EWE_MUSIC_DIR` overrides the
+  `subs` (the first .srt sidecar on), `subs-menu`, `subs-encoding` (that one on + the Subtitle
+  encoding menu), `audio-menu`, `playlist`, `mini`, `music-albums`, `music-album`, `music-songs`,
+  `music-now`, `music-playing`), `--shot-width=` as in Files. `ewe-player <page-url>` is the
+  public way to play a web page (ewe Browser's "Play in ewe Player" and Shaun call it); a second
+  launch forwards it to the running window. `$EWE_MUSIC_DIR` overrides the
   music root. Music scenes need `SHOT_WAIT=6` on a fresh home (the first scan).
+- **Links** (`links.rs`, spike 2026-11-21 in the wave scratchpad `player/SPIKE.md`): a link
+  whose path names media (`.mp4`, `.m3u8`, `.mpd`…) or that answers `video/*`, `audio/*`, an HLS
+  or DASH type (curl, 6 s) plays as it is. Anything else goes to `yt-dlp -J --no-playlist
+--flat-playlist` (60 s cap) and `pick()` chooses, in order: the **HLS master** `manifest_url`
+  holding video + audio (YouTube's `hls_variant` with separate audio renditions plays through
+  WebKit's legacy `hlsdemux`, seeks), one **progressive** file with both (Twitch clips, YouTube
+  `18`; ≤ 1080 lines, mp4/H.264 first), a muxed HLS variant, a **DASH** `.mpd` (`dashdemux`; the
+  BBC). Split https video + audio only → `unplayable` (the page offers mpv); `has_drm` → `drm`
+  (Vimeo's anonymous player API serves FairPlay `SAMPLE-AES`; vimeo.com wants a login, other ids a
+  TLS fingerprint python-curl_cffi would fake). A playlist page becomes queue entries. The webview
+  resolves a link only when it becomes current ("Getting the video…"), caches it an hour, asks
+  again once when a stream fails (googlevideo URLs expire after ~6 h). `EWE_PLAYER_YTDLP=<path>`
+  runs another yt-dlp (one unpacked from the package for tests); a missing path = not installed.
+  The Arch `yt-dlp` pulls `yt-dlp-ejs` + `deno` (YouTube's n-challenge); no remux route yet.
+- **Errors** (`decodeFailureMessage` in `@ewe/shared`, pure + tested): a web page with no video,
+  "needs yt-dlp", DRM, yt-dlp's own sentence ("Private video."), gst-libav _only when_
+  `media_support` says it is missing (`EWE_PLAYER_LIBAV=0|1` forces the answer; hiding the
+  plugin with `GST_PLUGIN_SYSTEM_PATH` makes it honest), else the codec in words and "refused".
+  Actions: Open with another app (files), Open in ewe Browser (`ewe-browser <url>`, else
+  xdg-open), Open in mpv (only when mpv is on PATH), Try again, Next.
+- **Languages**: track menus say "English", "Русский · Commentary", "ქართული" (`trackLabel`; the
+  title is dropped when it only repeats the language). `VideoPrefs.audioLanguage` (`auto` = the
+  system's) and `subtitleLanguage` (`auto` / `off` / a code) live in `ewe.player.state`; the
+  "Preferred language" submenus of the audio and subtitle menus set them. A file with several
+  audio tracks gets the preferred one; subtitles come on by themselves only when the sound is in
+  another language (or unknown), in the preferred language, else an untagged sidecar
+  (`Movie.srt`). The system language is `navigator.language`, which WebKit takes from the
+  _installed_ locale (`setlocale`): `LANG=de_DE.UTF-8` on a box without that locale reads as
+  en-US — build one with `localedef -i de_DE -f UTF-8 <dir>/de_DE.UTF-8` and pass `LOCPATH=<dir>`
+  (shot.sh passes it).
 - **Narrow windows**: the music nav is a labelled column, an icon rail below 720 (labels as
   tooltips) and a segmented control over the list below 520 (Rescan moves into the ⋯ menu, the
   bar keeps the mute button only). The video bar below 560 (`narrowBar`, the stage's width, not
@@ -314,6 +393,13 @@ ewe-player status/position/metadata` inside it never touches the owner's session
   (the player says so); WMV/WMA and ALAC fail with the plain-words page. With the extracted
   gst-libav all 26 rows play (`avdec_aac`, `avdec_wmv2`, `avdec_alac`…; VA decoders still win for
   H.264/HEVC). ewe 0.44 ships gst-libav.
+- **Links** (2026-11-21, release build, headless, yt-dlp 2026.10.26 unpacked, MPRIS position read
+  twice 3 s apart, then `playerctl position T`): YouTube `watch?v=` (HLS master, `avdec_aac` +
+  `vah264dec`, 300 → 301.5), Twitch VOD (3000 → 3001.5) and clip, BBC News page (HLS), a direct
+  CDN `.mp4` without CORS, an M3U of two page links, `ewe-player <url>` forwarded by a second
+  launch — all advance. One YouTube start in nine stalled with no error (fragments never came):
+  a link that has loaded nothing after 20 s is asked for again once, then gets the
+  "connection broke" page (`STALL_MS`). Vimeo: no anonymous route (DRM / login).
 
 ## Verify (do this before reporting)
 
@@ -423,8 +509,36 @@ commands::*` in lib.rs) because the macro it generates is `#[macro_export]`ed th
   before WebKit starts (`webkit_media_env()` in lib.rs); any app that plays long media through
   the server needs the same. `WEBKIT_GST_ENABLE_HLS_SUPPORT=1` is needed for `.m3u8` URLs.
   `GST_DEBUG=webkitmediaplayer:6,downloadbuffer:5` is how to see it.
+- **A `crossorigin` `<video>` cannot play links**: the CDNs (googlevideo, Twitch, BBC…) send no
+  `Access-Control-Allow-Origin`, so every remote load failed as "format not supported" — the
+  owner's "Cannot play watch" page. Only the loopback server's files get `crossorigin`; links stay
+  at ≤ 100 % volume (Web Audio plays a cross-origin source as silence), and a link that follows a
+  boosted file gets a fresh `<video>` (once captured by `createMediaElementSource` an element
+  only plays through the graph).
+- **WebKit's automatic caption selection** flips a track we set to `showing` back off when more
+  tracks arrive (in-band tracks after the sidecars): auto-picked subtitles never drew. The
+  textTracks `change` event re-applies our choice (`applySubs` writes only real changes).
+- Subtitles at the bottom sat under the control bar: `video::-webkit-media-text-track-container`
+  takes a `transform` in WebKitGTK and inherits custom properties from `.vp`, so
+  `--vp-cue-lift` (bar height + a margin, 0 when `controls-hidden`) slides the cue line up and
+  down with a transition. `cue.line` would jump and re-lay every cue.
+- A server that answers headers and then never sends a byte froze the whole WebProcess (no
+  paint, no JS) in a test; one that never answers at all is caught by the stall watchdog.
 - Headless cage has no audio server: GStreamer falls back to a fake sink, audio files still
   play and advance (good for the matrix) but nothing is audible. VA-API decoding works there
   (`GST_DEBUG=GST_ELEMENT_FACTORY:4` shows `vah264dec` / `vah265dec` being created).
 - ffmpeg's `gradients` filter writes semi-transparent RGBA PNGs; a test cover that "does not
   show" may just be 35 % opaque — generate covers with `-pix_fmt rgb24`.
+- **`system-ui` is not a fontconfig family on Arch**: WebKitGTK resolves it to whatever
+  fontconfig matches first for the character, and with GNU FreeFont installed (the `ttf-font`
+  provider) that is FreeMono for Arabic — letters unjoined, typewriter-spaced — and FreeSans
+  for Hebrew. Named Noto faces before `system-ui` fix it (`withScriptFonts`); ewe's own
+  fonts.conf only names Georgian and CJK.
+- `text-overflow: ellipsis` follows the direction of the element that clips: `dir="auto"` must
+  sit on that element (wrap a label in its own span when the clipping element is a button or
+  a flex container with an icon — `.fm-crumb-label`), not on an inner span.
+- `heif-dec` writes `out-1.jpg`, `out-2.jpg` … instead of `out.jpg` when a file holds several
+  top-level pictures (bursts): `picture::settle` keeps the first. It decodes AVIF too (dav1d).
+- `chardetng` 1.0 has no confidence score: `confident` = the guess is the same with and without
+  the language hint and decoding had no errors. Give it whole files when you can (`complete`):
+  a prefix must be fed with `last = false` or a cut character counts against the guess.

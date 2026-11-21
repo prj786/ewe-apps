@@ -14,8 +14,8 @@ pkgname=ewe-apps
 # extracts to <repo>-<tag without the leading v>, so the source URL and
 # the directory below follow _tag, never pkgver. The release workflow
 # rewrites both.
-_tag=v0.1.1-beta
-pkgver=0.1.1beta
+_tag=v0.2.0-beta
+pkgver=0.2.0beta
 pkgrel=1
 pkgdesc="ewe Files, ewe Player and ewe Viewer — files, video + music, documents + pictures on the ewe desktop"
 arch=('x86_64' 'aarch64')
@@ -33,12 +33,19 @@ depends=(
   'gst-plugins-ugly'
   'gst-libav'
   'gst-plugin-va'
+  # ewe Player plays the video on a web page (YouTube, Twitch, news sites…): yt-dlp
+  # finds the stream (it pulls yt-dlp-ejs + deno, which YouTube's challenge needs)
+  'yt-dlp'
   'ffmpegthumbnailer'       # video thumbnails into the freedesktop cache
+  'libheif'                 # heif-dec: iPhone HEIC/HEIF pictures (WebKitGTK has no HEIF
+                            # decoder) and AVIF thumbnails; djxl comes with libjxl and
+                            # libjpeg-turbo / libpng (its JPEG/PNG writers) with webkit2gtk
   'libarchive'              # bsdtar: list / extract / compress archives
   '7zip'                    # 7z archives
 )
 optdepends=(
   'ewe: the desktop these are the apps of (theme-tokens.json, ewe-conf)'
+  'mpv: "Open in mpv" when ewe Player cannot stream a site'
   'plocate: "Search everywhere" in ewe Files'
   'unarchiver: RAR archives bsdtar cannot open (unar, lsar)'
 )

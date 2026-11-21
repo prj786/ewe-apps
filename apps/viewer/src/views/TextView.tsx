@@ -2,6 +2,9 @@
 // highlight.js core with 24 languages (colours mapped to Ewe tokens in app.css), marked +
 // DOMPurify for Markdown (relative images rewritten to raw URLs), the first 2 MB of big
 // files, plus a Source / Preview switch, wrap, and the scroll position remembered.
+// The text comes from the core's `/text` route in whatever encoding it was written
+// (Windows-1251, Shift_JIS, GBK…); the Encoding menu corrects a wrong guess and is
+// remembered per file.
 
 import {
   Match,
@@ -11,6 +14,7 @@ import {
   createResource,
   createSignal,
   on,
+  untrack,
   type JSX,
 } from 'solid-js'
 import DOMPurify from 'dompurify'
@@ -39,13 +43,32 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import { marked } from 'marked'
-import { extensionOf, formatBytes, rawUrl } from '@ewe/shared'
-import { EmptyState, IconButton, Segmented, Toolbar, addRecent, toast } from '@ewe/ui'
+import {
+  TEXT_ENCODINGS,
+  encodingLabel,
+  encodingShort,
+  extensionOf,
+  formatBytes,
+  isEncoding,
+  rawUrl,
+  readText,
+} from '@ewe/shared'
+import {
+  Button,
+  EmptyState,
+  IconButton,
+  Menu,
+  Segmented,
+  Toolbar,
+  addRecent,
+  toast,
+  type MenuEntry,
+} from '@ewe/ui'
 import { fileStat, openExternal } from '../lib/bridge'
 import { inTextInput, isMod, useKeys } from '../lib/keys'
 import { baseName, dirName, docKind } from '../lib/kinds'
 import { getSetting, recallPosition, savePosition, setSetting } from '../lib/store'
-import { hasFlag } from '../lib/flags'
+import { flagValue, hasFlag } from '../lib/flags'
 import type { ViewProps } from './types'
 
 const LANGUAGES = {
@@ -127,6 +150,28 @@ const BY_EXTENSION: Record<string, keyof typeof LANGUAGES> = {
 }
 
 const MAX_BYTES = 2 * 1024 * 1024
+
+// Every block of a Markdown document reads in its own direction: an Arabic or Hebrew
+// paragraph, item or heading right to left, an English one left to right.
+const BIDI_BLOCKS = new Set([
+  'P',
+  'LI',
+  'UL',
+  'OL',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'BLOCKQUOTE',
+  'TABLE',
+  'TD',
+  'TH',
+  'DL',
+  'DT',
+  'DD',
+])
 const FONT_STEPS = [11, 12, 13, 14, 16, 18, 20, 24]
 
 export function languageFor(name: string): keyof typeof LANGUAGES | null {
@@ -162,30 +207,96 @@ export function TextView(props: ViewProps): JSX.Element {
   const [wrap, setWrap] = createSignal(getSetting('textWrap', true))
   const [fontSize, setFontSize] = createSignal(getSetting('textFont', 13))
   const [size, setSize] = createSignal(0)
+  /** the encoding the person chose; null = detect (undefined: not read from memory yet) */
+  const [chosen, setChosen] = createSignal<string | null | undefined>(undefined)
+  const [encodingMenu, setEncodingMenu] = createSignal<{ x: number; y: number } | null>(null)
   let scroller: HTMLElement | undefined
+  let restored = false
 
-  const [text] = createResource(
-    () => props.path,
-    async (path) => {
+  createEffect(
+    on(
+      () => props.path,
+      (path) => {
+        // `--encoding=windows-1251` reads the files of that command line so (not saved)
+        const flagged = flagValue(props.flags ?? [], 'encoding')
+        if (flagged !== null && flagged !== '') {
+          setChosen(flagged === 'auto' ? null : flagged)
+          return
+        }
+        void recallPosition(path).then((saved) =>
+          setChosen(
+            saved?.encoding === undefined || saved.encoding === 'auto' ? null : saved.encoding,
+          ),
+        )
+      },
+    ),
+  )
+
+  const [file] = createResource(
+    () => {
+      const encoding = chosen()
+      return encoding === undefined ? null : { path: props.path, encoding }
+    },
+    async ({ path, encoding }) => {
       const stat = await fileStat(path)
       setSize(stat.size)
-      const response = await fetch(rawUrl(props.server, path), {
-        headers: stat.size > MAX_BYTES ? { range: `bytes=0-${MAX_BYTES - 1}` } : {},
-      })
-      if (!response.ok) throw new Error(`Could not read ${baseName(path)}`)
+      const read = await readText(props.server, path, { encoding, max: MAX_BYTES })
       void addRecent(path).catch(() => undefined)
-      const body = await response.text()
       const saved = await recallPosition(path)
-      if (saved?.scroll !== undefined) {
+      if (!restored && saved?.scroll !== undefined) {
+        restored = true
         const frac = saved.scroll
         requestAnimationFrame(() => {
           if (scroller !== undefined)
             scroller.scrollTop = frac * (scroller.scrollHeight - scroller.clientHeight)
         })
       }
-      return body
+      return read
     },
   )
+  const text = () => file()?.text
+
+  // `--encoding-menu`: the screenshot hook opens the menu once the text is there
+  let menuHook = untrack(() => hasFlag(props.flags ?? [], 'encoding-menu'))
+  createEffect(
+    on(file, (read) => {
+      if (!menuHook || read === undefined) return
+      menuHook = false
+      requestAnimationFrame(() => {
+        const r = document.querySelector('.tv-encoding')?.getBoundingClientRect()
+        if (r !== undefined) setEncodingMenu({ x: r.right, y: r.bottom + 4 })
+      })
+    }),
+  )
+
+  const chooseEncoding = (encoding: string | null) => {
+    setChosen(encoding)
+    // 'auto' and not undefined: the memory merges, an absent field would keep the old one
+    savePosition(props.path, { encoding: encoding ?? 'auto' })
+  }
+
+  const encodingItems = (): MenuEntry[] => {
+    const read = file()
+    const auto = chosen() === null
+    return [
+      {
+        type: 'item',
+        id: 'auto',
+        label: 'Automatic',
+        hint: auto && read !== undefined ? encodingShort(read.encoding) : undefined,
+        icon: auto ? 'check' : undefined,
+        run: () => chooseEncoding(null),
+      },
+      { type: 'separator' },
+      ...TEXT_ENCODINGS.map((e): MenuEntry => ({
+        type: 'item',
+        id: e.name,
+        label: e.label,
+        icon: !auto && isEncoding(chosen(), e.name) ? 'check' : undefined,
+        run: () => chooseEncoding(e.name),
+      })),
+    ]
+  }
 
   const truncated = () => size() > MAX_BYTES
 
@@ -209,6 +320,8 @@ export function TextView(props: ViewProps): JSX.Element {
     const dir = dirName(props.path)
     const html = marked.parse(text() ?? '', { async: false, gfm: true })
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+      if (BIDI_BLOCKS.has(node.tagName) && !node.hasAttribute('dir'))
+        node.setAttribute('dir', 'auto')
       if (node.tagName === 'A') {
         node.setAttribute('rel', 'noopener')
         return
@@ -322,7 +435,9 @@ export function TextView(props: ViewProps): JSX.Element {
     <div class="tv" style={{ '--text-view-size': `${fontSize()}px` }}>
       <Toolbar label="Text" class="view-toolbar">
         <span class="view-title">
-          <span class="view-name">{name()}</span>
+          <span class="view-name" dir="auto">
+            {name()}
+          </span>
           <span class="view-meta">
             {formatBytes(size())}
             {languageFor(name()) !== null && !isMarkdown() ? ` · ${languageFor(name())}` : ''}
@@ -354,16 +469,35 @@ export function TextView(props: ViewProps): JSX.Element {
             }
           />
         </Show>
+        <Show when={file()}>
+          {(read) => (
+            <Button
+              small
+              kind="ghost"
+              icon="languages"
+              class="tv-encoding"
+              title={`Text encoding: ${encodingLabel(read().encoding)}${
+                read().confident || chosen() !== null ? '' : ' (a guess)'
+              }`}
+              onClick={(e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                setEncodingMenu({ x: r.right, y: r.bottom + 4 })
+              }}
+            >
+              {encodingShort(read().encoding)}
+            </Button>
+          )}
+        </Show>
         <IconButton icon="zoom-out" label="Smaller text (Ctrl+−)" onClick={() => stepFont(-1)} />
         <IconButton icon="zoom-in" label="Larger text (Ctrl++)" onClick={() => stepFont(1)} />
       </Toolbar>
       <Switch>
-        <Match when={text.error !== undefined}>
+        <Match when={file.error !== undefined}>
           <div class="view-center">
             <EmptyState icon="circle-alert" title={`Could not read ${name()}`} warning />
           </div>
         </Match>
-        <Match when={text.loading}>
+        <Match when={file.loading && file() === undefined}>
           <div class="view-center tv-message">Loading…</div>
         </Match>
         <Match when={text() !== undefined}>
@@ -402,6 +536,9 @@ export function TextView(props: ViewProps): JSX.Element {
           </Show>
         </Match>
       </Switch>
+      <Show when={encodingMenu()}>
+        {(at) => <Menu items={encodingItems()} at={at()} onClose={() => setEncodingMenu(null)} />}
+      </Show>
     </div>
   )
 }

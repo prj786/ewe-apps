@@ -106,7 +106,9 @@ export function Start(props: {
                     onClick={() => props.onOpen(doc.path)}
                   >
                     <Thumb doc={doc} server={props.server} />
-                    <span class="start-card-name">{doc.name}</span>
+                    <span class="start-card-name" dir="auto">
+                      {doc.name}
+                    </span>
                     <span class="start-card-meta">
                       {KIND_LABEL[docKind(doc.path)]} · {formatBytes(doc.size)}
                       {doc.opened > 0 ? ` · ${timeAgo(doc.opened)}` : ''}

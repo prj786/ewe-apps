@@ -43,7 +43,14 @@ import {
   type MenuEntry,
 } from '@ewe/ui'
 import { AudioEngine } from '../audio'
-import { coverArtFile, launchWith, probeMedia, type Library, type Transport } from '../bridge'
+import {
+  coverArtFile,
+  launchWith,
+  mediaSupport,
+  probeMedia,
+  type Library,
+  type Transport,
+} from '../bridge'
 import { publish } from '../mpris'
 import type { MusicPrefs, MusicView as MainView } from '../store'
 import './music.css'
@@ -145,13 +152,19 @@ export function MusicView(props: MusicViewProps): JSX.Element {
       publish({ status: 'stopped' }, true)
       if (t === undefined) return
       setError(`Cannot play ${t.title}`)
-      void probeMedia(t.path)
-        .catch(() => null)
-        .then((streams) => {
-          const msg = decodeFailureMessage(t.title, streams, code)
+      void Promise.all([probeMedia(t.path).catch(() => null), mediaSupport()]).then(
+        ([streams, support]) => {
+          const msg = decodeFailureMessage({
+            name: t.title,
+            remote: false,
+            streams,
+            mediaErrorCode: code,
+            support,
+          })
           setError(msg.detail)
           toast(`${msg.title}. ${msg.detail}`, { kind: 'danger', duration: 8000 })
-        })
+        },
+      )
     },
   })
 
@@ -506,12 +519,18 @@ export function MusicView(props: MusicViewProps): JSX.Element {
                   <Cover track={track()} label={track().album || track().title} size="sm" />
                 </Show>
                 <span class="mu-title-text">
-                  <span class="mu-title">{track().title}</span>
-                  <span class="mu-sub">{track().artist || 'Unknown artist'}</span>
+                  <span class="mu-title" dir="auto">
+                    {track().title}
+                  </span>
+                  <span class="mu-sub" dir="auto">
+                    {track().artist || 'Unknown artist'}
+                  </span>
                 </span>
               </span>
               <Show when={p.showAlbum ?? true}>
-                <span class="mu-album-cell">{track().album}</span>
+                <span class="mu-album-cell" dir="auto">
+                  {track().album}
+                </span>
               </Show>
               <span class="mu-time">{formatDuration(track().duration)}</span>
               <Show when={p.removable ?? false}>
@@ -544,8 +563,12 @@ export function MusicView(props: MusicViewProps): JSX.Element {
         {(album) => (
           <button class="mu-tile" onClick={() => setView({ kind: 'album', key: album.key })}>
             <Cover track={album.cover} label={album.title || album.artist} />
-            <span class="mu-tile-title">{album.title || 'Unknown album'}</span>
-            <span class="mu-tile-sub">{album.artist || 'Unknown artist'}</span>
+            <span class="mu-tile-title" dir="auto">
+              {album.title || 'Unknown album'}
+            </span>
+            <span class="mu-tile-sub" dir="auto">
+              {album.artist || 'Unknown artist'}
+            </span>
           </button>
         )}
       </For>
@@ -559,8 +582,8 @@ export function MusicView(props: MusicViewProps): JSX.Element {
         <Cover track={p.album.cover} label={p.album.title || p.album.artist} size="lg" />
         <div class="mu-hero-text">
           <span class="mu-overline">Album</span>
-          <h1>{p.album.title || 'Unknown album'}</h1>
-          <span class="mu-sub">
+          <h1 dir="auto">{p.album.title || 'Unknown album'}</h1>
+          <span class="mu-sub" dir="auto">
             {joinParts([
               p.album.artist || 'Unknown artist',
               p.album.year === null ? '' : String(p.album.year),
@@ -602,11 +625,13 @@ export function MusicView(props: MusicViewProps): JSX.Element {
             <Cover track={track()} label={track().album || track().title} size="xl" />
             <div class="mu-hero-text">
               <span class="mu-overline">Now playing</span>
-              <h1>{track().title}</h1>
-              <span class="mu-sub">
+              <h1 dir="auto">{track().title}</h1>
+              <span class="mu-sub" dir="auto">
                 {joinParts([track().artist || 'Unknown artist', track().album])}
               </span>
-              <span class="mu-sub">{track().path}</span>
+              <span class="mu-sub" dir="auto">
+                {track().path}
+              </span>
             </div>
           </div>
           <TrackRows list={queue()} removable />
@@ -946,10 +971,12 @@ export function MusicView(props: MusicViewProps): JSX.Element {
                           <span class="mu-cover sm" style={{ '--h': String(hue(path)) }}>
                             <Icon name="list-music" size={14} />
                           </span>
-                          <span class="mu-title">
+                          <span class="mu-title" dir="auto">
                             {stemOf(path.slice(path.lastIndexOf('/') + 1))}
                           </span>
-                          <span class="mu-sub">{path.replace(/^\/home\/[^/]+/, '~')}</span>
+                          <span class="mu-sub" dir="auto">
+                            {path.replace(/^\/home\/[^/]+/, '~')}
+                          </span>
                         </button>
                       )}
                     </For>
@@ -975,8 +1002,10 @@ export function MusicView(props: MusicViewProps): JSX.Element {
                           label={artist.name}
                           size="sm"
                         />
-                        <span class="mu-title">{artist.name || 'Unknown artist'}</span>
-                        <span class="mu-sub">
+                        <span class="mu-title" dir="auto">
+                          {artist.name || 'Unknown artist'}
+                        </span>
+                        <span class="mu-sub" dir="auto">
                           {joinParts([
                             plural(artist.albums.length, 'album'),
                             plural(artist.tracks, 'song'),
@@ -1005,8 +1034,10 @@ export function MusicView(props: MusicViewProps): JSX.Element {
                   <Cover track={track()} label={track().album || track().title} />
                 </button>
                 <span class="mu-now-text">
-                  <span class="mu-title">{track().title}</span>
-                  <span class="mu-sub">
+                  <span class="mu-title" dir="auto">
+                    {track().title}
+                  </span>
+                  <span class="mu-sub" dir="auto">
                     {[track().artist, track().album].filter((x) => x !== '').join(' — ')}
                   </span>
                 </span>

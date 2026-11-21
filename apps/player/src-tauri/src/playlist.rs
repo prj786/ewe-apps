@@ -122,7 +122,9 @@ pub fn write_m3u(entries: &[PlaylistEntry], base_dir: &Path) -> String {
 
 pub fn load(path: &Path) -> std::io::Result<Vec<PlaylistEntry>> {
     let bytes = std::fs::read(path)?;
-    let text = crate::subs::decode(&bytes);
+    // `.m3u` is traditionally in the system's legacy code page, `.m3u8` in UTF-8: the
+    // core's decoder tells them apart
+    let text = crate::subs::decode_file(path, &bytes, None).text;
     let base = path.parent().unwrap_or(Path::new("/"));
     Ok(parse_m3u(&text, base))
 }
@@ -213,5 +215,25 @@ mod tests {
         assert_eq!(back[0].duration, Some(200.0));
         assert_eq!(back[1].title, Some("Two".into()));
         assert_eq!(back[2].path, "https://example.com/live.m3u8");
+    }
+
+    #[test]
+    fn legacy_encoded_titles_read_right() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("Mix.m3u");
+        // Windows-1251, as Winamp-era players wrote it
+        let mut bytes = b"#EXTM3U\r\n#EXTINF:215,".to_vec();
+        bytes
+            .extend_from_slice(b"\xca\xe8\xed\xee - \xc3\xf0\xf3\xef\xef\xe0 \xea\xf0\xee\xe2\xe8");
+        bytes.extend_from_slice(b"\r\n\xcc\xf3\xe7\xfb\xea\xe0/01 \xc3\xf0\xf3\xef\xef\xe0 \xea\xf0\xee\xe2\xe8.mp3\r\n");
+        std::fs::write(&list, bytes).unwrap();
+        let got = load(&list).unwrap();
+        assert_eq!(got[0].title.as_deref(), Some("Кино - Группа крови"));
+        assert_eq!(
+            got[0].path,
+            dir.path()
+                .join("Музыка/01 Группа крови.mp3")
+                .to_string_lossy()
+        );
     }
 }

@@ -54,7 +54,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.1.1-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.2.0-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides

@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-app-core"
-version = "0.1.1-beta"
+version = "0.2.0-beta"
 dependencies = [
  "axum",
  "chardetng",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-files-app"
-version = "0.1.1-beta"
+version = "0.2.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-player"
-version = "0.1.1-beta"
+version = "0.2.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-viewer"
-version = "0.1.1-beta"
+version = "0.2.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",

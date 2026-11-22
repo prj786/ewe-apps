@@ -6,7 +6,8 @@
 //! `/cover?path=&t=` answer PNG / image bytes; `/text/<name>?path=&t=[&enc=][&max=]`
 //! answers the file's text as UTF-8 whatever it was written in ([`crate::text`]), with
 //! `X-Ewe-Encoding` / `X-Ewe-Encoding-Confident` / `X-Ewe-Truncated`;
-//! `/picture/<name>?path=&t=` answers a JPEG of a HEIC/HEIF ([`crate::picture`]).
+//! `/picture/<name>?path=&t=` answers a JPEG of a HEIC/HEIF ([`crate::picture`]);
+//! `/app-icon?path=&t=` the icon embedded in an eep card ([`crate::eep`]).
 //! Every route needs the per-run token
 //! or it is 403; only regular files are served. The port is random, the token is
 //! 32 random bytes in hex, both handed to the webview through `media_server`.
@@ -438,6 +439,46 @@ async fn picture(
     }
 }
 
+/// The icon an eep card (`<Name>.eep`) carries, as it is: a PNG or an SVG. Read and
+/// decoded per request (a card is at most 256 KB); the ETag (size + mtime) turns every
+/// later request for an unchanged card into a 304 without opening it.
+async fn app_icon(
+    State(shared): State<Arc<Shared>>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    let path = match check(&shared, &q) {
+        Ok(p) => p,
+        Err(code) => return code.into_response(),
+    };
+    let meta = match tokio::fs::metadata(&path).await {
+        Ok(m) if m.is_file() => m,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let etag = format!("\"a-{}\"", etag_for(&meta).trim_matches('"'));
+    if not_modified(&headers, &etag) {
+        return StatusCode::NOT_MODIFIED.into_response();
+    }
+    match tokio::task::spawn_blocking(move || crate::eep::read_icon(&path)).await {
+        Ok(Some(icon)) => {
+            let mut res = image_response(icon.bytes, icon.mime, Some(etag));
+            let h = res.headers_mut();
+            h.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            // an SVG from a downloaded card: shown by <img> (no scripts there anyway);
+            // opened on its own it still runs nothing
+            h.insert(
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; sandbox"),
+            );
+            res
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 /// A running server. Dropping it does not stop the task; it lives for the process.
 pub struct MediaServer {
     pub info: MediaServerInfo,
@@ -530,6 +571,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/cover", get(cover))
         .route("/text/{name}", get(text))
         .route("/picture/{name}", get(picture))
+        .route("/app-icon", get(app_icon))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(axum::middleware::from_fn(cors))
         .with_state(shared)
@@ -783,6 +825,56 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn app_icons_come_out_of_eep_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let card = dir.path().join("Firefox.eep");
+        std::fs::write(
+            &card,
+            format!("id = \"firefox\"\nname = \"Firefox\"\nicon_type = \"image/png\"\nicon_data = \"{png}\"\n"),
+        )
+        .unwrap();
+        let bare = dir.path().join("ripgrep.eep");
+        std::fs::write(&bare, "id = \"ripgrep\"\nname = \"ripgrep\"\n").unwrap();
+        let other = dir.path().join("Firefox.txt");
+        std::fs::copy(&card, &other).unwrap();
+        let (addr, _h) = serve_on(Thumbs::new(dir.path().join("cache")), "t".into())
+            .await
+            .unwrap();
+        let get = |p: &Path, extra: &str| {
+            format!(
+                "GET /app-icon?path={}&t=t HTTP/1.1\r\nHost: x\r\nConnection: close\r\n{extra}\r\n",
+                enc(p)
+            )
+        };
+        let (head, body) = http(addr, get(&card, "")).await;
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(head.contains("content-type: image/png"), "{head}");
+        assert!(head.contains("x-content-type-options: nosniff"), "{head}");
+        assert!(body.starts_with(b"\x89PNG"));
+        let etag = head
+            .lines()
+            .find_map(|l| l.strip_prefix("etag: "))
+            .unwrap()
+            .to_string();
+        let (head, _) = http(addr, get(&card, &format!("If-None-Match: {etag}\r\n"))).await;
+        assert!(head.starts_with("http/1.1 304"), "{head}");
+        for p in [&bare, &other] {
+            let (head, _) = http(addr, get(p, "")).await;
+            assert!(head.starts_with("http/1.1 404"), "{}: {head}", p.display());
+        }
+        let (head, _) = http(
+            addr,
+            format!(
+                "GET /app-icon?path={}&t=x HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                enc(&card)
+            ),
+        )
+        .await;
+        assert!(head.starts_with("http/1.1 403"), "{head}");
     }
 
     #[test]

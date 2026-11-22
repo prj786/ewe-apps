@@ -1141,9 +1141,10 @@ dependencies = [
 
 [[package]]
 name = "ewe-app-core"
-version = "0.2.1-beta"
+version = "0.3.0-beta"
 dependencies = [
  "axum",
+ "base64 0.23.1",
  "chardetng",
  "chrono",
  "encoding_rs",
@@ -1167,11 +1168,12 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
 name = "ewe-files-app"
-version = "0.2.1-beta"
+version = "0.3.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1194,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-player"
-version = "0.2.1-beta"
+version = "0.3.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1213,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-viewer"
-version = "0.2.1-beta"
+version = "0.3.0-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",

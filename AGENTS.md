@@ -29,6 +29,7 @@ crates/core      ewe-app-core       theme (read + notify watch), server (axum lo
                                     chardetng + encoding_rs), picture (HEIC → cached JPEG; HEIC/AVIF/
                                     JXL decoded for thumbnails), cover (lofty + sidecar), recent
                                     (recently-used.xbel), mime (GIO), exif (kamadak-exif → ExifInfo),
+                                    eep (eep app cards: name + embedded icon, cached per path+mtime),
                                     launch (argv), app (the Tauri builder; `run_with` takes a builder
                                     hook for app plugins), commands (the Tauri commands), xdg
 apps/{files,player,viewer}          index.html, vite.config.ts (ports 5181/5182/5183), src/{index.tsx,
@@ -50,11 +51,11 @@ npx -y pnpm@11.13.0 lint                 # eslint flat config: typescript-eslint
 npx -y pnpm@11.13.0 format               # prettier (format:check in CI)
 npx -y pnpm@11.13.0 test                 # vitest: packages/shared, packages/ui
 npx -y pnpm@11.13.0 test                 # also apps/viewer: memory, csv, exif, flags
-cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif, text encodings, HEIC) + the viewer's comics + the player's subtitles in every encoding
+cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif, text encodings, HEIC, eep cards + /app-icon) + the viewer's comics + the player's subtitles in every encoding
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.2.1-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.3.0-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -89,6 +90,8 @@ handler![…])`): `--version` prints JSON and exits 0 (rule 5); `glib::set_prgna
 128|256|512)` (freedesktop cache read/write, `image` crate with EXIF orientation,
   `ffmpegthumbnailer` for video, embedded cover for audio, HEIC/AVIF/JPEG XL through
   `heif-dec`/`djxl`, 3 generations at once), `coverUrl`.
+  `appIconUrl(server, path, mtime)` = `/app-icon?path=&m=&t=`: the icon an eep card embeds
+  (PNG or SVG as it is, `nosniff` + a sandbox CSP, ETag = size + mtime → 304s).
   Only regular files under absolute paths; 403 without the token; the CSP allows
   `http://127.0.0.1:*` for img/media/connect only. `EWE_APPS_MEDIA_SERVER_FILE=<path>` makes the
   app write `{port, token}` there (tests, curl).
@@ -278,7 +281,24 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
-- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|more|tabs|compress`
+- **eep cards** (`<Name>.eep`, `../eep/docs/CARD.md`): the card in `~/Applications` IS the app
+  (`eep watch` installs a card that arrives, uninstalls one that leaves). `fs::entry_for` reads any
+  `.eep` through the core's `eep::card` (TOML; `id` + `name` required, else it is a plain file;
+  cached per path + size + mtime + inode) into `Entry.app` {name, id, version, kind, icon} — also
+  on Trash rows and search hits (found by the app's name too). The page shows `displayName()`
+  (the card's `name`, no `.eep`) everywhere, sorts and filters by it, kind `app` ("App",
+  `app-window`), the icon from `/app-icon` (`fm-thumb--app`: contain, no backdrop). Open = the
+  `eep_open` command (`eep open <card>` through `tool_path`, in its own session), else the GIO
+  default (eep setup makes that `eep open %f` too). eep prints one `{"ok":false,"error":…}`
+  line when it gives up and otherwise execs the app, which keeps eep's stdout: an `sh` pipeline
+  hands Files the first line (read on a thread → `eep-open {window, id, error}` replaces the
+  "Opening…" toast) and drains the rest into /dev/null for the app's life (never a dead pipe).
+  An empty Applications says where apps come from (`fm-empty-hint`). Move to Trash reads "Remove app" / "Remove N apps" when the
+  whole selection is cards in Applications — the same Trash, eep's watcher does the uninstall.
+  Rename keeps `.eep` (`cardStem` in the field, `cardFileName` on commit). The place
+  "Applications" (`$EEP_APPS_DIR` or `~/Applications`, `places::apps_dir`) sits right under Home
+  even before the folder exists; `list_dir` makes it on first open (`ensure_apps_dir`).
+- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|applications|open|more|tabs|compress`
   puts a fresh window into that state (used for the screenshots; `quicklook` shows the row a
   `--select=` picked); `--shot-width=900` /
   `--shot-height=600` size the app root like a smaller window inside cage's fixed 1280×720

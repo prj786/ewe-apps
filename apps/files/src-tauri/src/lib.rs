@@ -203,6 +203,7 @@ pub fn run() {
             set_wallpaper,
             run_executable,
             komble_install,
+            eep_open,
             ewe_sync,
             tools,
             clipboard_set,
@@ -257,9 +258,12 @@ fn window_closed(window: tauri::Window, state: State<'_, FilesState>) {
 #[tauri::command]
 async fn list_dir(path: String, hidden: bool) -> Result<fs::Listing, String> {
     let p = expand(&path);
-    tauri::async_runtime::spawn_blocking(move || fs::list(&p, hidden).map_err(io))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        places::ensure_apps_dir(&p, &places::system_apps_dir(&home()));
+        fs::list(&p, hidden).map_err(io)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -604,6 +608,25 @@ fn komble_install(path: String) -> Result<(), String> {
     misc::komble_install(&expand(&path))
 }
 
+/// `eep open <card>`, detached: installs the app if needed and starts it. When eep says
+/// it could not, `eep-open {window, id, error}` tells the window that asked.
+#[tauri::command]
+fn eep_open(
+    window: tauri::Window,
+    state: State<'_, FilesState>,
+    path: String,
+    id: u64,
+) -> Result<(), String> {
+    let emit = state.emit.clone();
+    let label = window.label().to_string();
+    misc::eep_open(&expand(&path), move |error| {
+        emit(
+            "eep-open",
+            serde_json::json!({ "window": label, "id": id, "error": error }),
+        );
+    })
+}
+
 /// `{op: "available"}` | `{op: "pane", pane}` | `{op: "add-folder", path}`
 #[tauri::command]
 fn ewe_sync(op: String, pane: Option<String>, path: Option<String>) -> bool {
@@ -626,6 +649,8 @@ struct Tools {
     seven_zip: bool,
     unar: bool,
     komble: bool,
+    /// eep, the app manager: `.eep` cards open with `eep open`
+    eep: bool,
     ewe_sync: bool,
     ewe_conf: bool,
     terminal: bool,
@@ -641,6 +666,7 @@ fn tools() -> Tools {
         seven_zip: misc::on_path("7z").is_some() || misc::on_path("7za").is_some(),
         unar: misc::on_path("unar").is_some(),
         komble: misc::on_path("komble").is_some(),
+        eep: places::tool_path("eep").is_some(),
         ewe_sync: misc::ewe_sync_available(),
         ewe_conf: places::tool_path("ewe-conf").is_some(),
         terminal: misc::on_path("ewe-terminal-here").is_some()

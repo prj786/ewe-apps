@@ -21,7 +21,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   TRASH_PATH,
   VIEWABLE_KINDS,
+  appIconUrl,
   baseName,
+  cardFileName,
+  displayName,
   fileKind,
   isAppImage,
   isExecutable,
@@ -37,6 +40,7 @@ import {
   type AppEntry,
   type CompressFormat,
   type Device,
+  type FsEntry,
   type FsPlace,
   type Launch,
   type MediaServer,
@@ -58,6 +62,7 @@ import {
   Tabs,
   Toasts,
   applyShotSize,
+  dismissToast,
   getMediaServer,
   toast,
   type IconName,
@@ -327,6 +332,11 @@ export function App(): JSX.Element {
     const s = server()
     return s === null ? '' : rawUrl(s, path)
   }
+  /** the icon inside an eep card (the core decodes it) */
+  const appIcon = (path: string, mtime: number): string => {
+    const s = server()
+    return s === null ? '' : appIconUrl(s, path, mtime)
+  }
   /** what an <img> shows: the raw file, or a JPEG of a HEIC the core converts */
   const picture = (path: string): string => {
     const s = server()
@@ -357,12 +367,32 @@ export function App(): JSX.Element {
     })
   }
 
+  /** what a row is called where the user sees it: an eep card by its app's name */
+  const nameOf = (path: string, pane: PaneHandle | null = activePane()): string => {
+    const row = pane?.rows().find((r) => r.path === path)
+    return row === undefined ? baseName(path) : displayName(row)
+  }
+
+  /** eep cards in eep's Applications folder: taking one out removes the app (eep watch) */
+  const appsDir = () => places().find((p) => p.id === 'applications')?.path ?? null
+  const removesApps = (rows: readonly FsEntry[]): boolean => {
+    const dir = appsDir()
+    return (
+      dir !== null &&
+      rows.length > 0 &&
+      rows.every((r) => r.app !== undefined && parentOf(r.path) === dir)
+    )
+  }
+
   const trashSelected = (pane: PaneHandle, paths: string[]) => {
     if (paths.length === 0) return
     if (pane.mode() === 'trash') {
       confirmDelete(paths)
       return
     }
+    const first = nameOf(paths[0] ?? '', pane)
+    const chosen = new Set(paths)
+    const apps = removesApps(pane.rows().filter((r) => chosen.has(r.path)))
     void api.opStart('trash', paths, null).then((id) => {
       refreshOps()
       const watch = onEvent('op-progress', (p) => {
@@ -370,9 +400,13 @@ export function App(): JSX.Element {
         if (p.state === 'done') {
           watch()
           say(
-            paths.length === 1
-              ? `Moved “${baseName(paths[0] ?? '')}” to Trash`
-              : `Moved ${paths.length} items to Trash`,
+            apps
+              ? paths.length === 1
+                ? `Removed ${first}`
+                : `Removed ${paths.length} apps`
+              : paths.length === 1
+                ? `Moved “${first}” to Trash`
+                : `Moved ${paths.length} items to Trash`,
           )
           toast('Moved to Trash', {
             kind: 'success',
@@ -391,7 +425,7 @@ export function App(): JSX.Element {
       kind: 'confirm',
       title:
         paths.length === 1
-          ? `Delete “${baseName(paths[0] ?? '')}” forever?`
+          ? `Delete “${nameOf(paths[0] ?? '')}” forever?`
           : `Delete ${paths.length} items forever?`,
       description: 'This cannot be undone.',
       action: 'Delete forever',
@@ -493,6 +527,35 @@ export function App(): JSX.Element {
     setViewer({ items, index })
   }
 
+  /** an eep card: `eep open` installs the app when it has to and starts it; when eep
+   *  gives up, its words replace the "Opening…" toast (`eep-open`) */
+  const opening = new Map<number, number>()
+  let nextOpen = 1
+  const openApp = (entry: FsEntry) => {
+    if (tools()?.eep !== true) {
+      void openExternal([entry.path])
+      return
+    }
+    const id = nextOpen++
+    opening.set(id, toast(`Opening ${displayName(entry)}…`))
+    api.eepOpen(entry.path, id).catch(() => {
+      const shown = opening.get(id)
+      opening.delete(id)
+      if (shown !== undefined) dismissToast(shown)
+      void openExternal([entry.path])
+    })
+  }
+  onCleanup(
+    onEvent('eep-open', (r) => {
+      if (r.window !== windowLabel()) return
+      const shown = opening.get(r.id)
+      if (shown === undefined) return
+      opening.delete(r.id)
+      dismissToast(shown)
+      say(r.error, 'danger')
+    }),
+  )
+
   const open = (entry: Row, pane: PaneHandle, how: 'default' | 'tab' | 'window') => {
     if (pane.mode() === 'trash') {
       say('Restore it first to open it')
@@ -502,6 +565,10 @@ export function App(): JSX.Element {
       if (how === 'tab') openTab(entry.path, { activate: false })
       else if (how === 'window') void api.newWindow([entry.path])
       else pane.go(entry.path)
+      return
+    }
+    if (entry.app !== undefined) {
+      openApp(entry)
       return
     }
     const kind = fileKind(entry)
@@ -591,8 +658,11 @@ export function App(): JSX.Element {
   }
 
   const commitRename = (pane: PaneHandle, entry: Row, name: string) => {
-    const next = name.trim()
-    if (next === '' || next === entry.name) return
+    const typed = name.trim()
+    if (typed === '') return
+    // an eep card keeps its .eep (the field shows the name without it)
+    const next = entry.app === undefined ? typed : cardFileName(typed)
+    if (next === entry.name) return
     if (!isFileName(next)) {
       say('A name cannot contain /', 'danger')
       return
@@ -806,12 +876,17 @@ export function App(): JSX.Element {
       )
     const sync = entry.dir && !many ? syncItem(entry.path) : null
     if (sync !== null) items.push(sep(), sync)
+    // the same Trash: for cards in Applications it reads as what it does
+    const apps = removesApps(sel)
     items.push(
       sep(),
-      item('trash', 'Move to Trash', 'trash-2', () => trashSelected(pane, paths), {
-        hint: 'Del',
-        danger: true,
-      }),
+      item(
+        'trash',
+        apps ? (many ? `Remove ${paths.length} apps` : 'Remove app') : 'Move to Trash',
+        'trash-2',
+        () => trashSelected(pane, paths),
+        { hint: 'Del', danger: true },
+      ),
       item('delete', 'Delete forever', 'trash-2', () => confirmDelete(paths), {
         hint: 'Shift+Del',
         danger: true,
@@ -1375,6 +1450,18 @@ export function App(): JSX.Element {
         case 'places':
           if (compact()) setPlacesDrawer(true)
           break
+        case 'applications': {
+          // the place as a click opens it (made on first open)
+          const apps = places().find((p) => p.id === 'applications')
+          if (apps !== undefined) openPlace(apps)
+          break
+        }
+        case 'open': {
+          // a double-click on the row `--select=` picked (an eep card: `eep open`)
+          const row = pane.selected()[0] ?? first
+          if (row !== undefined) open(row, pane, 'default')
+          break
+        }
         case 'more':
           document.querySelector<HTMLElement>('.fm-more-btn')?.click()
           break
@@ -1534,6 +1621,7 @@ export function App(): JSX.Element {
     places,
     home,
     thumbUrl: thumb,
+    appIconUrl: appIcon,
     pdfThumb: (path) => (server() === null ? Promise.resolve(null) : pdfThumb(raw(path), 256)),
     open,
     entryMenu,
@@ -1780,7 +1868,11 @@ export function App(): JSX.Element {
             pictureUrl={picture}
             readText={readTextFile}
             thumbUrl={thumb}
-            onOpen={(r) => void openExternal([r.path])}
+            appIconUrl={appIcon}
+            onOpen={(r) => {
+              if (r.app !== undefined) openApp(r)
+              else void openExternal([r.path])
+            }}
             overlay={compact()}
             onClose={() => setPreviewOverlay(false)}
           />

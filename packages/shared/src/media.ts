@@ -35,6 +35,15 @@ export function thumbUrl(server: MediaServer, path: string, size: ThumbSize = 25
   return `${origin(server)}/thumb?${params.toString()}`
 }
 
+/**
+ * The icon embedded in an eep card (`<Name>.eep`): a PNG or SVG, as the card has it.
+ * `mtime` is in the URL so an updated card shows its new icon.
+ */
+export function appIconUrl(server: MediaServer, path: string, mtime: number): string {
+  const params = new URLSearchParams({ path, m: String(mtime), t: server.token })
+  return `${origin(server)}/app-icon?${params.toString()}`
+}
+
 export function coverUrl(server: MediaServer, path: string): string {
   const params = new URLSearchParams({ path, t: server.token })
   return `${origin(server)}/cover?${params.toString()}`

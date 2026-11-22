@@ -20,6 +20,8 @@ import {
   THUMBNAIL_KINDS,
   TRASH_PATH,
   baseName,
+  cardStem,
+  displayName,
   fileKind,
   filterEntries,
   formatBytes,
@@ -61,6 +63,7 @@ export const KIND_ICON: Record<FileKind, IconName> = {
   disk: 'disc',
   executable: 'terminal',
   package: 'package',
+  app: 'app-window',
   other: 'file',
 }
 
@@ -80,6 +83,7 @@ export const KIND_LABEL: Record<FileKind, string> = {
   disk: 'Disk image',
   executable: 'Program',
   package: 'App package',
+  app: 'App',
   other: 'File',
 }
 
@@ -143,6 +147,8 @@ export interface PaneCtx {
   places: Accessor<FsPlace[]>
   home(): string
   thumbUrl(path: string, size: 128 | 256 | 512): string
+  /** the icon inside an eep card */
+  appIconUrl(path: string, mtime: number): string
   pdfThumb(path: string): Promise<string | null>
   open(entry: Row, pane: PaneHandle, how: 'default' | 'tab' | 'window'): void
   entryMenu(pane: PaneHandle, entry: Row, at: Point): void
@@ -232,6 +238,7 @@ export function Pane(props: PaneProps): JSX.Element {
           hidden: false,
           target: null,
           mode: t.mode,
+          app: t.app,
           original: t.original,
           deleted: t.deleted,
         }))
@@ -581,6 +588,12 @@ export function Pane(props: PaneProps): JSX.Element {
     return out
   })
 
+  /** eep's Applications folder (its empty page says where apps come from) */
+  const isAppsFolder = () =>
+    ctx()
+      .places()
+      .some((p) => p.id === 'applications' && p.path === path())
+
   const syncRoot = createMemo(() => syncRootOf(path(), ctx().places()))
   const syncedFolders = createMemo(
     () =>
@@ -662,6 +675,8 @@ export function Pane(props: PaneProps): JSX.Element {
       (THUMBNAIL_KINDS.has(kind()) || kind() === 'audio') &&
       thumb() !== 'failed' &&
       mode() !== 'trash'
+    // an eep card's own icon (a card without one keeps the app glyph), in the Trash too
+    const wantsAppIcon = () => p.entry.app?.icon === true && thumb() !== 'failed'
     const sync = () => (p.entry.dir ? syncedFolders().get(p.entry.path) : undefined)
     const exec = () => isExecutable(p.entry) && kind() !== 'package'
     return (
@@ -670,7 +685,7 @@ export function Pane(props: PaneProps): JSX.Element {
         classList={{
           folder: p.entry.dir,
           exec: exec(),
-          'has-thumb': (wantsThumb() && thumb() === 'ok') || pdf() !== null,
+          'has-thumb': ((wantsThumb() || wantsAppIcon()) && thumb() === 'ok') || pdf() !== null,
           link: p.entry.kind === 'link',
         }}
       >
@@ -710,21 +725,33 @@ export function Pane(props: PaneProps): JSX.Element {
         <Show when={pdf()}>
           {(url) => <img class="fm-thumb fm-thumb--pdf" src={url()} alt="" draggable={false} />}
         </Show>
+        <Show when={wantsAppIcon()}>
+          <img
+            class="fm-thumb fm-thumb--app"
+            src={ctx().appIconUrl(p.entry.path, p.entry.mtime)}
+            alt=""
+            decoding="async"
+            draggable={false}
+            onLoad={() => setThumb('ok')}
+            onError={() => setThumb('failed')}
+          />
+        </Show>
       </span>
     )
   }
 
+  // an eep card's field leaves out `.eep` (kept on disk, see commitRename)
   const NameField = (p: { entry: Row }): JSX.Element => (
     <input
       class="fm-rename"
-      value={p.entry.name}
+      value={p.entry.app === undefined ? p.entry.name : cardStem(p.entry.name)}
       spellcheck={false}
       aria-label="New name"
       ref={(el) =>
         queueMicrotask(() => {
           el.focus()
-          const dot = p.entry.dir ? -1 : p.entry.name.lastIndexOf('.')
-          el.setSelectionRange(0, dot > 0 ? dot : p.entry.name.length)
+          const dot = p.entry.dir || p.entry.app !== undefined ? -1 : p.entry.name.lastIndexOf('.')
+          el.setSelectionRange(0, dot > 0 ? dot : el.value.length)
         })
       }
       onKeyDown={(e) => {
@@ -1215,6 +1242,11 @@ export function Pane(props: PaneProps): JSX.Element {
                       : 'Searching…'
                     : 'This folder is empty'}
             </span>
+            <Show when={filter() === '' && mode() === 'folder' && isAppsFolder()}>
+              <span class="fm-empty-hint">
+                Apps you get from Komble or the ewe website appear here.
+              </span>
+            </Show>
           </div>
         </Show>
         <Show when={prefs().view === 'list' && rows().length > 0}>
@@ -1259,7 +1291,7 @@ export function Pane(props: PaneProps): JSX.Element {
                       when={renaming() === entry().path}
                       fallback={
                         <span class="fm-name" dir="auto">
-                          {entry().name}
+                          {displayName(entry())}
                         </span>
                       }
                     >
@@ -1299,8 +1331,8 @@ export function Pane(props: PaneProps): JSX.Element {
                 classList={entryClasses(entry())}
                 title={
                   mode() === 'folder'
-                    ? entry().name
-                    : `${entry().name}\n${entry().original ?? entry().path}`
+                    ? displayName(entry())
+                    : `${displayName(entry())}\n${entry().original ?? entry().path}`
                 }
                 {...itemProps(entry)}
                 {...(entry().dir && mode() === 'folder' ? dropHandlers(() => entry().path) : {})}
@@ -1310,7 +1342,7 @@ export function Pane(props: PaneProps): JSX.Element {
                   when={renaming() === entry().path}
                   fallback={
                     <span class="fm-name" dir="auto">
-                      {entry().name}
+                      {displayName(entry())}
                     </span>
                   }
                 >

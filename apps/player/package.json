@@ -1,7 +1,7 @@
 {
   "name": "ewe-player",
   "private": true,
-  "version": "0.2.1-beta",
+  "version": "0.3.0-beta",
   "license": "GPL-3.0-only",
   "type": "module",
   "description": "The ewe video and music player",

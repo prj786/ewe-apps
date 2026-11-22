@@ -1,4 +1,5 @@
-//! The places panel: Home and the XDG folders, Nextcloud / Google Drive through the
+//! The places panel: Home, Applications (eep's `~/Applications`), the XDG folders,
+//! Nextcloud / Google Drive through the
 //! `ewe-files` / `ewe-drive` brokers, ewe-sync's synced folders
 //! (`$XDG_STATE_HOME/ewe/sync-folders.json`), GTK bookmarks, `/run/media`, GVFS
 //! mounts, rclone mounts, File system and Trash. Same shapes as ewe Browser's
@@ -44,6 +45,8 @@ pub struct CloudStatus {
 /// What places are built from; tests hand in a fake.
 pub struct PlacesEnv {
     pub home: PathBuf,
+    /// eep's apps folder ([`apps_dir`]); shown whether it exists yet or not
+    pub apps: PathBuf,
     pub user: String,
     pub uid: u32,
     pub config_home: PathBuf,
@@ -51,6 +54,28 @@ pub struct PlacesEnv {
     pub state_home: PathBuf,
     pub mounts: String,
     pub cloud: HashMap<&'static str, CloudStatus>,
+}
+
+/// eep's apps folder: `$EEP_APPS_DIR` (absolute) or `~/Applications` (eep/docs/CARD.md).
+/// A card dropped in is installed, a card taken out uninstalled, by `eep watch`.
+pub fn apps_dir(home: &Path, env_override: Option<&std::ffi::OsStr>) -> PathBuf {
+    match env_override.map(Path::new) {
+        Some(p) if p.is_absolute() => crate::fs::normalize(p),
+        _ => home.join("Applications"),
+    }
+}
+
+/// The apps folder of this session.
+pub fn system_apps_dir(home: &Path) -> PathBuf {
+    apps_dir(home, std::env::var_os("EEP_APPS_DIR").as_deref())
+}
+
+/// The Applications place is listed before its folder exists: opening it makes it.
+/// Any other missing path stays missing (the pane says so).
+pub fn ensure_apps_dir(path: &Path, apps: &Path) {
+    if path == apps && !crate::fs::exists(path) {
+        let _ = std::fs::create_dir_all(path);
+    }
 }
 
 const XDG_DIRS: &[(&str, &str, &str)] = &[
@@ -353,6 +378,21 @@ pub fn compute(env: &PlacesEnv) -> Vec<Place> {
     }];
     let dirs = parse_user_dirs(&read(&env.config_home.join("user-dirs.dirs")), &env.home);
     let mut seen = vec![env.home.clone()];
+    // right under Home, like a Mac's Applications; listed before it exists (opening it
+    // creates it, see `list_dir`)
+    if env.apps != env.home {
+        seen.push(env.apps.clone());
+        places.push(Place {
+            id: "applications".into(),
+            label: "Applications".into(),
+            path: s(&env.apps),
+            group: "places",
+            icon: "app-window",
+            state: "ready",
+            mount: None,
+            sync: None,
+        });
+    }
     for (key, icon, fallback) in XDG_DIRS {
         let path = dirs
             .get(*key)
@@ -617,6 +657,7 @@ pub fn system_env() -> PlacesEnv {
         },
         mounts: read(Path::new("/proc/mounts")),
         cloud,
+        apps: system_apps_dir(&home),
         home,
     }
 }
@@ -683,6 +724,32 @@ mod tests {
     }
 
     #[test]
+    fn opening_applications_makes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let apps = dir.path().join("Applications");
+        ensure_apps_dir(&dir.path().join("Elsewhere"), &apps);
+        assert!(!dir.path().join("Elsewhere").exists());
+        ensure_apps_dir(&apps, &apps);
+        assert!(apps.is_dir());
+        ensure_apps_dir(&apps, &apps);
+        assert!(apps.is_dir());
+    }
+
+    #[test]
+    fn apps_dir_follows_eep() {
+        let home = Path::new("/home/me");
+        assert_eq!(apps_dir(home, None), PathBuf::from("/home/me/Applications"));
+        assert_eq!(
+            apps_dir(home, Some(std::ffi::OsStr::new("/data/apps/"))),
+            PathBuf::from("/data/apps")
+        );
+        assert_eq!(
+            apps_dir(home, Some(std::ffi::OsStr::new("relative"))),
+            PathBuf::from("/home/me/Applications")
+        );
+    }
+
+    #[test]
     fn computes_places_from_a_fake_home() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
@@ -713,6 +780,7 @@ mod tests {
         )
         .unwrap();
         let env = PlacesEnv {
+            apps: apps_dir(&home, None),
             home: home.clone(),
             user: "me".into(),
             uid: 424242,
@@ -725,6 +793,11 @@ mod tests {
         let places = compute(&env);
         let ids: Vec<&str> = places.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids[0], "home");
+        // Applications comes right after Home even before the folder exists
+        assert_eq!(ids[1], "applications");
+        assert!(!home.join("Applications").exists());
+        assert_eq!(places[1].path, s(&home.join("Applications")));
+        assert_eq!((places[1].icon, places[1].group), ("app-window", "places"));
         assert!(ids.contains(&"xdg-download") && ids.contains(&"xdg-pictures"));
         assert!(!ids.contains(&"xdg-documents"));
         let nc = places.iter().find(|p| p.id == "nextcloud").unwrap();

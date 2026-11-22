@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BATCH_RENAME,
   batchRenameNames,
+  cardFileName,
+  cardStem,
   isExecutable,
   joinPath,
   modeFromTriplets,
@@ -75,5 +77,15 @@ describe('batch rename', () => {
         case: 'title',
       }),
     ).toEqual(['My Summer-Trip_Photos.jpg'])
+  })
+})
+
+describe('eep cards', () => {
+  it('keeps .eep on a renamed card', () => {
+    expect(cardStem('Firefox.eep')).toBe('Firefox')
+    expect(cardStem('Firefox.EEP')).toBe('Firefox')
+    expect(cardFileName('Web')).toBe('Web.eep')
+    expect(cardFileName(' Web.eep ')).toBe('Web.eep')
+    expect(cardFileName('my.app')).toBe('my.app.eep')
   })
 })

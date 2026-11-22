@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appIconUrl,
   coverUrl,
   needsPictureConversion,
   pictureUrl,
@@ -31,6 +32,14 @@ describe('media urls', () => {
     const cover = new URL(coverUrl(server, '/x/y.flac'))
     expect(cover.pathname).toBe('/cover')
     expect(cover.searchParams.get('path')).toBe('/x/y.flac')
+  })
+
+  it('builds eep card icon urls that change with the card', () => {
+    const icon = new URL(appIconUrl(server, '/home/me/Applications/Firefox.eep', 1700000000000))
+    expect(icon.pathname).toBe('/app-icon')
+    expect(icon.searchParams.get('path')).toBe('/home/me/Applications/Firefox.eep')
+    expect(icon.searchParams.get('t')).toBe('abc123')
+    expect(appIconUrl(server, '/a.eep', 1)).not.toBe(appIconUrl(server, '/a.eep', 2))
   })
 })
 

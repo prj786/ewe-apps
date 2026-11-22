@@ -1,7 +1,14 @@
 // The preview pane (F9): the selected file at a glance.
 
 import { Match, Show, Switch, createResource, type JSX } from 'solid-js'
-import { fileKind, formatBytes, type FsEntry, type TextFile, type ThumbSize } from '@ewe/shared'
+import {
+  displayName,
+  fileKind,
+  formatBytes,
+  type FsEntry,
+  type TextFile,
+  type ThumbSize,
+} from '@ewe/shared'
 import { Button, EmptyState, Icon, IconButton } from '@ewe/ui'
 import { api } from './api'
 import { fmtDate } from './dialogs'
@@ -16,6 +23,8 @@ export function Preview(props: {
   /** text decoded by the core, whatever its encoding */
   readText(path: string, max?: number): Promise<TextFile>
   thumbUrl(path: string, size: ThumbSize): string
+  /** the icon inside an eep card */
+  appIconUrl(path: string, mtime: number): string
   onOpen(row: FsEntry): void
   /** compact windows: the pane floats over the folder and has a close button */
   overlay?: boolean | undefined
@@ -78,6 +87,13 @@ export function Preview(props: {
                   </span>
                 }
               >
+                <Match when={row().app?.icon === true}>
+                  <img
+                    class="fm-preview-img fm-preview-app"
+                    src={props.appIconUrl(row().path, row().mtime)}
+                    alt=""
+                  />
+                </Match>
                 <Match when={kind() === 'image'}>
                   <img class="fm-preview-img" src={props.pictureUrl(row().path)} alt="" />
                 </Match>
@@ -93,11 +109,21 @@ export function Preview(props: {
               </Switch>
             </div>
             <div class="fm-preview-name" dir="auto">
-              {row().name}
+              {displayName(row())}
             </div>
             <dl class="props-grid compact">
               <dt>Type</dt>
-              <dd>{mime()?.description ?? KIND_LABEL[kind()]}</dd>
+              <dd>
+                {kind() === 'app' ? KIND_LABEL.app : (mime()?.description ?? KIND_LABEL[kind()])}
+              </dd>
+              <Show when={row().app?.version}>
+                {(version) => (
+                  <>
+                    <dt>Version</dt>
+                    <dd>{version()}</dd>
+                  </>
+                )}
+              </Show>
               <Show when={!row().dir}>
                 <dt>Size</dt>
                 <dd>{formatBytes(row().size)}</dd>

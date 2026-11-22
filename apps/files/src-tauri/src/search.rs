@@ -114,7 +114,13 @@ pub fn passes(entry: &Entry, f: &SearchFilters, now_ms: i64) -> bool {
     if !f.hidden && entry.hidden {
         return false;
     }
-    if !name_matches(&entry.name, &f.query) {
+    // an eep card is found by the app's name too ("firefox" finds Firefox.eep)
+    if !name_matches(&entry.name, &f.query)
+        && !entry
+            .app
+            .as_ref()
+            .is_some_and(|a| name_matches(&a.name, &f.query))
+    {
         return false;
     }
     if !f.kind.is_empty() {
@@ -287,6 +293,7 @@ mod tests {
                     hidden: i["hidden"].as_bool().unwrap(),
                     target: None,
                     mode: 0,
+                    app: None,
                 })
                 .collect();
             sink.lock()
@@ -354,5 +361,21 @@ mod tests {
             now
         ));
         assert_eq!(ext_kind("a.mkv"), "video");
+    }
+
+    #[test]
+    fn finds_eep_cards_by_the_apps_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("web.eep");
+        std::fs::write(&card, "id = \"firefox\"\nname = \"Firefox\"\n").unwrap();
+        let e = entry_for(&card).unwrap();
+        assert_eq!(e.app.as_ref().unwrap().name, "Firefox");
+        let by = |query: &str| SearchFilters {
+            query: query.into(),
+            ..SearchFilters::default()
+        };
+        assert!(passes(&e, &by("firefox"), 0));
+        assert!(passes(&e, &by("web"), 0));
+        assert!(!passes(&e, &by("chromium"), 0));
     }
 }

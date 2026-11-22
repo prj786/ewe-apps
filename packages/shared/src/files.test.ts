@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  displayName,
   fileKind,
   filterEntries,
   gvfsLabel,
@@ -96,6 +97,30 @@ describe('entries', () => {
         .slice(2),
     ).toEqual(['file2.txt', 'file10.txt'])
     expect(filterEntries(list, 'FILE1').map((e) => e.name)).toEqual(['file10.txt'])
+  })
+
+  it('shows an eep card as its app', () => {
+    const app = (file: string, name: string) => ({
+      ...entry(file),
+      app: { name, id: name.toLowerCase(), version: '1', kind: 'gui', icon: true },
+    })
+    const firefox = app('Firefox.eep', 'Firefox')
+    // renamed on disk: the card's name still counts
+    const gimp = app('zz-renamed.eep', 'GIMP')
+    const broken = entry('Broken.eep')
+    expect(displayName(firefox)).toBe('Firefox')
+    expect(displayName(broken)).toBe('Broken.eep')
+    expect(fileKind(firefox)).toBe('app')
+    expect(fileKind(broken)).toBe('other')
+    const list = [gimp, broken, firefox, entry('apps', true)]
+    expect(sortEntries(list, 'name', false).map(displayName)).toEqual([
+      'apps',
+      'Broken.eep',
+      'Firefox',
+      'GIMP',
+    ])
+    expect(filterEntries(list, 'gim').map(displayName)).toEqual(['GIMP'])
+    expect(filterEntries(list, '.eep').map(displayName)).toEqual(['Broken.eep'])
   })
 
   it('labels GVFS mounts', () => {

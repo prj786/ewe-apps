@@ -29,6 +29,7 @@ export const PLACE_ICON: Record<FsPlaceIcon, IconName> = {
   server: 'server',
   'trash-2': 'trash-2',
   monitor: 'monitor',
+  'app-window': 'app-window',
 }
 
 export const SYNC_ICON: Record<FsSyncState, IconName> = {

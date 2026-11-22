@@ -6,12 +6,14 @@
 //! - [`server`]: the loopback media server (`127.0.0.1`, a random port, a per-run token):
 //!   `/raw/<name>?path=&t=` with HTTP Range streaming, `/thumb?path=&size=&t=`,
 //!   `/cover?path=&t=`, `/text/<name>?path=&t=` (any encoding → UTF-8) and
-//!   `/picture/<name>?path=&t=` (HEIC → JPEG); 403 without the token. WebKitGTK media
+//!   `/picture/<name>?path=&t=` (HEIC → JPEG), `/app-icon?path=&t=` (an eep card's
+//!   icon); 403 without the token. WebKitGTK media
 //!   needs real Range streaming, so files never travel through a custom scheme.
 //! - [`thumbs`]: the freedesktop thumbnail cache, read and written per the spec.
 //! - [`text`]: bytes in any encoding → text (BOM, UTF-8, chardetng + encoding_rs).
 //! - [`picture`]: HEIC/HEIF → a cached JPEG; HEIC/AVIF/JPEG XL decoded for thumbnails.
 //! - [`cover`]: audio covers (embedded picture or a cover image next to the file).
+//! - [`eep`]: eep app cards (`<Name>.eep`): the app's name and embedded icon.
 //! - [`recent`]: appends to `recently-used.xbel` the way GTK does.
 //! - [`mime`]: content types and applications through GIO.
 //! - [`launch`]: argv → paths and flags (`--version` prints JSON and exits 0).
@@ -25,6 +27,7 @@
 pub mod app;
 pub mod commands;
 pub mod cover;
+pub mod eep;
 pub mod exif;
 pub mod launch;
 pub mod mime;

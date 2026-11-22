@@ -32,6 +32,9 @@ pub struct TrashEntry {
     pub dir: bool,
     pub mtime: i64,
     pub mode: u32,
+    /// a trashed eep card: the app (restoring it brings the app back)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<ewe_app_core::eep::AppCard>,
 }
 
 /// Everything that decides where a trash lives: injectable for tests.
@@ -273,6 +276,7 @@ pub fn list(env: &TrashEnv) -> Vec<TrashEntry> {
                 dir: e.dir,
                 mtime: e.mtime,
                 mode: e.mode,
+                app: e.app,
             });
         }
     }

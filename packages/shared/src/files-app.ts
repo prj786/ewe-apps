@@ -1,7 +1,7 @@
 // What ewe Files (apps/files) and its Rust side (apps/files/src-tauri) exchange,
 // on top of the browser-era shapes in files.ts. serde camelCase on the wire.
 
-import type { FsEntry } from './files'
+import type { AppCard, FsEntry } from './files'
 
 /** A listing row from the Rust side: `FsEntry` plus the permission bits. */
 export interface AppEntry extends FsEntry {
@@ -59,6 +59,8 @@ export interface TrashEntry {
   dir: boolean
   mtime: number
   mode: number
+  /** a trashed eep card: the app (restoring it brings the app back) */
+  app?: AppCard | undefined
 }
 
 export interface Device {
@@ -156,6 +158,8 @@ export interface Tools {
   sevenZip: boolean
   unar: boolean
   komble: boolean
+  /** eep (the app manager) is installed: `.eep` cards open with `eep open` */
+  eep: boolean
   eweSync: boolean
   eweConf: boolean
   terminal: boolean
@@ -199,6 +203,17 @@ export function uniqueName(taken: Iterable<string>, base: string): string {
 
 export function isExecutable(entry: Pick<AppEntry, 'mode' | 'dir'>): boolean {
   return !entry.dir && (entry.mode & 0o111) !== 0
+}
+
+/** The file name a renamed eep card gets: the `.eep` stays whatever was typed. */
+export function cardFileName(typed: string): string {
+  const name = typed.trim()
+  return /\.eep$/i.test(name) ? name : `${name}.eep`
+}
+
+/** The name an eep card's rename field starts with: the file name without `.eep`. */
+export function cardStem(fileName: string): string {
+  return fileName.replace(/\.eep$/i, '')
 }
 
 export function isAppImage(name: string): boolean {

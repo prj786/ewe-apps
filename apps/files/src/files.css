@@ -381,6 +381,17 @@
   visibility: hidden;
 }
 
+/* an eep card's own icon: the whole picture with nothing behind it, like an app */
+.fm-thumb--app {
+  object-fit: contain;
+  background: none;
+  border-radius: 0;
+}
+
+.fm-icon.kind-app.has-thumb {
+  box-shadow: none;
+}
+
 .fm-row .fm-icon {
   width: var(--icon-md);
   height: var(--icon-md);
@@ -514,6 +525,10 @@
   font-size: var(--font-size-s);
 }
 
+.fm-empty-hint {
+  font-size: var(--font-size-s);
+}
+
 .fm-status {
   display: flex;
   align-items: center;
@@ -586,7 +601,8 @@
 }
 
 .fm-icon.kind-package,
-.fm-icon.kind-executable {
+.fm-icon.kind-executable,
+.fm-icon.kind-app {
   color: var(--accent-text);
 }
 
@@ -1575,6 +1591,12 @@
 
 .fm-preview-img.paper {
   box-shadow: var(--shadow-float);
+}
+
+.fm-preview-img.fm-preview-app {
+  width: calc(var(--icon-3xl) * 2);
+  height: calc(var(--icon-3xl) * 2);
+  margin: var(--space-lg);
 }
 
 .fm-preview-icon {

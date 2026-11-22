@@ -25,6 +25,9 @@ pub struct Entry {
     pub target: Option<String>,
     /// the permission bits (`0o755`), for the executable glyph and Properties
     pub mode: u32,
+    /// an eep card (`<Name>.eep`): the app it is, shown instead of the file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app: Option<ewe_app_core::eep::AppCard>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,6 +109,12 @@ pub fn entry_for(path: &Path) -> Option<Entry> {
         hidden: name.starts_with('.'),
         target,
         mode,
+        // only names that end in .eep are read (cached per path + mtime)
+        app: if dir {
+            None
+        } else {
+            ewe_app_core::eep::card(path)
+        },
         path: path.to_string_lossy().into_owned(),
         name,
     })
@@ -383,6 +392,33 @@ mod tests {
         assert_eq!(list(dir.path(), true).unwrap().entries.len(), 5);
         assert!(shown.writable);
         assert!(shown.free.is_some());
+    }
+
+    #[test]
+    fn eep_cards_list_as_their_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Firefox.eep"),
+            "eep = 0\nid = \"firefox\"\nname = \"Firefox\"\nversion = \"160.0.1\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("Broken.eep"), "not = = toml").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "name = \"x\"\nid = \"x\"").unwrap();
+        let listing = list(dir.path(), false).unwrap();
+        let by = |n: &str| listing.entries.iter().find(|e| e.name == n).unwrap();
+        let app = by("Firefox.eep").app.clone().unwrap();
+        assert_eq!(
+            (app.name.as_str(), app.version.as_str()),
+            ("Firefox", "160.0.1")
+        );
+        assert!(!app.icon);
+        assert!(
+            by("Broken.eep").app.is_none(),
+            "an unreadable card is a plain file"
+        );
+        assert!(by("notes.txt").app.is_none());
+        let json = serde_json::to_value(by("notes.txt")).unwrap();
+        assert!(json.get("app").is_none(), "no app, no key");
     }
 
     #[test]

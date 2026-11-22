@@ -1,5 +1,20 @@
 export type FsEntryKind = 'dir' | 'file' | 'link' | 'other'
 
+/**
+ * An eep card (`<Name>.eep`, eep/docs/CARD.md) is an app: the row shows the app's
+ * `name`, never the file name, and the icon embedded in the card.
+ */
+export interface AppCard {
+  name: string
+  id: string
+  /** empty when the card has none */
+  version: string
+  /** eep's `gui` | `cli` | `tool`, empty when the card has none */
+  kind: string
+  /** the card embeds an icon (the core's `/app-icon`) */
+  icon: boolean
+}
+
 export interface FsEntry {
   name: string
   path: string
@@ -9,6 +24,13 @@ export interface FsEntry {
   mtime: number
   hidden: boolean
   target: string | null
+  /** a readable eep card: the app it is */
+  app?: AppCard | undefined
+}
+
+/** What a row is called: an eep card's app name, else the file name. */
+export function displayName(entry: Pick<FsEntry, 'name' | 'app'>): string {
+  return entry.app?.name ?? entry.name
 }
 
 export interface FsListing {
@@ -36,6 +58,7 @@ export type FsPlaceIcon =
   | 'server'
   | 'trash-2'
   | 'monitor'
+  | 'app-window'
 
 export interface FsPlace {
   id: string
@@ -206,6 +229,7 @@ export type FileKind =
   | 'disk'
   | 'executable'
   | 'package'
+  | 'app'
   | 'other'
 
 const KINDS: Record<string, FileKind> = {}
@@ -239,8 +263,9 @@ export function extensionOf(name: string): string {
   return name.slice(dot + 1).toLowerCase()
 }
 
-export function fileKind(entry: Pick<FsEntry, 'name' | 'dir'>): FileKind {
+export function fileKind(entry: Pick<FsEntry, 'name' | 'dir' | 'app'>): FileKind {
   if (entry.dir) return 'folder'
+  if (entry.app !== undefined) return 'app'
   return KINDS[extensionOf(entry.name)] ?? 'other'
 }
 
@@ -269,7 +294,7 @@ export function sortEntries(entries: FsEntry[], key: SortKey, descending: boolea
     if (key === 'mtime') order = a.mtime - b.mtime
     else if (key === 'size') order = a.dir ? 0 : a.size - b.size
     else if (key === 'kind') order = collator.compare(fileKind(a), fileKind(b))
-    if (order === 0) order = collator.compare(a.name, b.name)
+    if (order === 0) order = collator.compare(displayName(a), displayName(b))
     return order * sign
   })
 }
@@ -277,7 +302,7 @@ export function sortEntries(entries: FsEntry[], key: SortKey, descending: boolea
 export function filterEntries(entries: FsEntry[], query: string): FsEntry[] {
   const q = query.trim().toLowerCase()
   if (q === '') return entries
-  return entries.filter((e) => e.name.toLowerCase().includes(q))
+  return entries.filter((e) => displayName(e).toLowerCase().includes(q))
 }
 
 function gvfsParams(spec: string): Record<string, string> {

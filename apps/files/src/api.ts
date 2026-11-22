@@ -87,6 +87,7 @@ export const api = {
   runExecutable: (path: string, terminal: boolean) =>
     invoke<null>('run_executable', { path, terminal }),
   komble: (path: string) => invoke<null>('komble_install', { path }),
+  eepOpen: (path: string, id: number) => invoke<null>('eep_open', { path, id }),
   eweSync: (
     op: 'available' | 'pane' | 'add-folder',
     extra: { pane?: string; path?: string } = {},
@@ -110,6 +111,8 @@ export interface Events {
   'fs-changed': { key: string; path: string }
   'search-results': SearchResults
   'size-progress': SizeProgress
+  /** `eep open` could not open an app: its error in words */
+  'eep-open': { window: string; id: number; error: string }
   'devices-changed': null
   'device-result': DeviceResult
   'mount-ask': MountAsk

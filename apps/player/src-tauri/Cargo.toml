@@ -20,7 +20,9 @@ ewe-app-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # GTK file chooser for Open file / folder / Load subtitles / Save playlist
-tauri-plugin-dialog = "2"
+# Open/Save through the portal, so ewe's file picker draws it (ewe RFC-011);
+# the default "gtk3" feature drew GTK's dialog inside this app instead
+tauri-plugin-dialog = { version = "2", default-features = false, features = ["xdg-portal"] }
 # org.mpris.MediaPlayer2.ewe-player on the session bus (zbus underneath, which also
 # does the org.freedesktop.ScreenSaver Inhibit call)
 mpris-server = { version = "0.11", features = ["tokio"] }

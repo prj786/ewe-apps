@@ -533,7 +533,10 @@ export function App(): JSX.Element {
   let nextOpen = 1
   const openApp = (entry: FsEntry) => {
     if (tools()?.eep !== true) {
-      void openExternal([entry.path])
+      // Without eep a card is only a small text file: handing it to the
+      // default app for text (or whatever claims it) opened an editor or a
+      // folder instead of the app. Say what is missing instead.
+      say(`To open ${displayName(entry)}, update ewe: it brings eep, the app manager`, 'danger')
       return
     }
     const id = nextOpen++

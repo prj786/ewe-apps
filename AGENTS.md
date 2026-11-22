@@ -55,7 +55,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.3.0-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.3.1-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -282,14 +282,17 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
 - **eep cards** (`<Name>.eep`, `../eep/docs/CARD.md`): the card in `~/Applications` IS the app
-  (`eep watch` installs a card that arrives, uninstalls one that leaves). `fs::entry_for` reads any
+  (`eep watch` installs a card that arrives, uninstalls one that leaves; since eep 0.2 every app on
+  the computer has one — a found app's card, `source = "system"`, hides or shows its app instead of
+  uninstalling it, and reads the same here). `fs::entry_for` reads any
   `.eep` through the core's `eep::card` (TOML; `id` + `name` required, else it is a plain file;
   cached per path + size + mtime + inode) into `Entry.app` {name, id, version, kind, icon} — also
   on Trash rows and search hits (found by the app's name too). The page shows `displayName()`
   (the card's `name`, no `.eep`) everywhere, sorts and filters by it, kind `app` ("App",
   `app-window`), the icon from `/app-icon` (`fm-thumb--app`: contain, no backdrop). Open = the
-  `eep_open` command (`eep open <card>` through `tool_path`, in its own session), else the GIO
-  default (eep setup makes that `eep open %f` too). eep prints one `{"ok":false,"error":…}`
+  `eep_open` command (`eep open <card>` through `tool_path`, in its own session). Without eep a
+  card is never handed to the GIO default (that opened a text editor or a folder): Files says
+  "update ewe: it brings eep" (0.3.1; ewe 0.49 depends on eep). eep prints one `{"ok":false,"error":…}`
   line when it gives up and otherwise execs the app, which keeps eep's stdout: an `sh` pipeline
   hands Files the first line (read on a thread → `eep-open {window, id, error}` replaces the
   "Opening…" toast) and drains the rest into /dev/null for the app's life (never a dead pipe).

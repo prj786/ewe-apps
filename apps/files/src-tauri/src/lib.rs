@@ -3,6 +3,7 @@
 //! ewe-app-core; this crate adds listing, the operations queue, Trash, archives,
 //! search, devices, Properties, the FileManager1 D-Bus service and many windows.
 
+pub mod apps;
 pub mod archive;
 pub mod clip;
 pub mod dbus;
@@ -22,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ewe_app_core::launch::Launch;
-use ewe_app_core::{AppSpec, RunHooks};
+use ewe_app_core::{AppSpec, RunHooks, WindowShape};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -67,14 +68,49 @@ fn io(e: std::io::Error) -> String {
     fs::error_message(&e)
 }
 
+/// The title the small Install window opens with. ewe's Hyprland rule `eep-install`
+/// (ewe: dotfiles/hypr/hyprland.lua) matches it to float the window, centred, at
+/// [`INSTALL_SIZE`]; the page then names the app ("Install Blender").
+pub const INSTALL_TITLE: &str = "Install an app";
+/// The Install window's size (the rule's `size` is the same numbers).
+pub const INSTALL_SIZE: (f64, f64) = (400.0, 380.0);
+
+/// `--install=<card>` (eep's card handler, `eep open --ask`): not a file manager
+/// window but a small card with the app's icon and name over its Install button.
+///
+/// It stays resizable on purpose. A window that cannot be resized does float on
+/// Hyprland by itself, but at the size of the whole screen (GTK takes the
+/// compositor's first size; measured in the nest, 2026-11-23): only the rule gives
+/// it its size and place. Without the rule (another compositor, an older ewe) it is
+/// an ordinary window with the card in its middle.
+fn install_shape(launch: &Launch) -> Option<WindowShape> {
+    launch
+        .flags
+        .iter()
+        .any(|f| f.starts_with("--install="))
+        .then(|| WindowShape {
+            title: INSTALL_TITLE.into(),
+            width: INSTALL_SIZE.0,
+            height: INSTALL_SIZE.1,
+            resizable: true,
+            script: Some("window.__eweView = 'install'".into()),
+        })
+}
+
 /// Open a window for `launch` (a second launch, D-Bus, Ctrl+N).
 pub fn open_window(app: &AppHandle, launch: Launch) -> tauri::Result<String> {
     let state: State<FilesState> = app.state();
     let n = state.next_window.fetch_add(1, Ordering::SeqCst);
     let label = format!("win-{n}");
+    let shape = install_shape(&launch);
     state.launches.lock().unwrap().insert(label.clone(), launch);
-    let spec: State<AppSpec> = app.state();
-    let win = ewe_app_core::open_window(app, &spec, &label)?;
+    let win = match shape {
+        Some(shape) => ewe_app_core::open_shaped(app, &label, &shape)?,
+        None => {
+            let spec: State<AppSpec> = app.state();
+            ewe_app_core::open_window(app, &spec, &label)?
+        }
+    };
     let _ = win.set_focus();
     Ok(label)
 }
@@ -119,6 +155,7 @@ pub fn run() {
             };
             app.manage(state);
             devices::init(emit.clone());
+            apps::watch_activity(emit.clone());
             // "Show in folder" from every other app, when no other file manager holds the name
             let handle = app.clone();
             let bus_emit: ops::Emit = Arc::new(move |name, payload| {
@@ -160,6 +197,7 @@ pub fn run() {
         })),
         second_launch: Some(Arc::new(second_launch)),
         configure: None,
+        first_window: Some(Box::new(install_shape)),
     };
     ewe_app_core::run_with(
         SPEC,
@@ -203,7 +241,11 @@ pub fn run() {
             set_wallpaper,
             run_executable,
             komble_install,
+            open_store,
             eep_open,
+            eep_activity,
+            eep_card,
+            eep_add,
             ewe_sync,
             tools,
             clipboard_set,
@@ -625,6 +667,49 @@ fn eep_open(
             serde_json::json!({ "window": label, "id": id, "error": error }),
         );
     })
+}
+
+/// What eep is installing right now (the page then follows `eep-activity`).
+#[tauri::command]
+fn eep_activity() -> Vec<ewe_app_core::eep::Activity> {
+    apps::activity()
+}
+
+/// A card before its app is installed: the app, and what eep says an install takes.
+#[tauri::command]
+async fn eep_card(path: String) -> Result<apps::CardInfo, String> {
+    let p = expand(&path);
+    tauri::async_runtime::spawn_blocking(move || apps::card_info(&p))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// `eep add <card>`, detached: the card moves into Applications and its app is
+/// installed. `eep-add {window, id, ok, error, card, appId}` when it is done.
+#[tauri::command]
+fn eep_add(
+    window: tauri::Window,
+    state: State<'_, FilesState>,
+    path: String,
+    id: u64,
+) -> Result<(), String> {
+    let emit = state.emit.clone();
+    let label = window.label().to_string();
+    apps::add(&expand(&path), move |r| {
+        emit(
+            "eep-add",
+            serde_json::json!({
+                "window": label, "id": id, "ok": r.ok, "error": r.error,
+                "card": r.card, "appId": r.app_id,
+            }),
+        );
+    })
+}
+
+/// Komble, where apps come from ("Get apps…" in Applications).
+#[tauri::command]
+fn open_store() -> Result<(), String> {
+    misc::open_komble()
 }
 
 /// `{op: "available"}` | `{op: "pane", pane}` | `{op: "add-folder", path}`

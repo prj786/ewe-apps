@@ -7,6 +7,10 @@
 //! that is listed again (every `fs-changed`) reads no card twice; [`read_icon`] decodes
 //! the embedded icon for the media server's `/app-icon` route. An unreadable card is
 //! simply not an app: the caller shows the file.
+//!
+//! A card that arrives in `~/Applications` is an app that is still being installed:
+//! [`AppCard::ready`] says whether eep has fetched it ([`fetched`]), and
+//! [`read_activity`] reads how far eep is (its `activity.json`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,6 +39,14 @@ pub struct AppCard {
     pub kind: String,
     /// the card embeds an icon (`/app-icon` serves it)
     pub icon: bool,
+    /// an app that was on the computer already (`source = "system"`: pacman, an
+    /// AppImage, Steam…): its card shows or hides it, nothing is fetched
+    pub system: bool,
+    /// where a found app came from (`pacman`, `appimage`, `steam`…), else empty
+    pub from: String,
+    /// the app can start now. An eep app is ready once eep has fetched it: a card
+    /// that just arrived in Applications is not, yet ([`fetched`])
+    pub ready: bool,
 }
 
 /// The fields Files reads; every other field of the card is eep's and ignored.
@@ -44,6 +56,9 @@ struct Raw {
     name: Option<String>,
     version: Option<String>,
     kind: Option<String>,
+    source: Option<String>,
+    from: Option<String>,
+    out: Option<String>,
     icon_type: Option<String>,
     icon_data: Option<String>,
 }
@@ -78,8 +93,14 @@ fn raw(text: &str) -> Option<Raw> {
 }
 
 /// A card's text → what a row shows; `None` when it is no card (bad TOML, no `id` or
-/// `name`).
+/// `name`). `ready` is as the text alone can say: a found app is, an eep app is
+/// not until [`card`] has looked ([`fetched`]).
 pub fn parse(card_text: &str) -> Option<AppCard> {
+    parse_with_out(card_text).map(|(app, _)| app)
+}
+
+/// [`parse`], and the store path an eep app's card names (empty for a found app).
+fn parse_with_out(card_text: &str) -> Option<(AppCard, String)> {
     let r = raw(card_text)?;
     let id = text(r.id);
     let name = text(r.name);
@@ -90,13 +111,36 @@ pub fn parse(card_text: &str) -> Option<AppCard> {
         && r.icon_data
             .as_deref()
             .is_some_and(|d| !d.trim().is_empty() && d.len() <= ICON_B64_MAX + 4);
-    Some(AppCard {
+    let system = r.source.as_deref().map(str::trim) == Some("system");
+    let app = AppCard {
         name,
         id,
         version: text(r.version),
         kind: text(r.kind),
         icon,
-    })
+        system,
+        from: text(r.from),
+        ready: system,
+    };
+    Some((app, text(r.out)))
+}
+
+/// Where eep keeps a link to the store path of every app it has installed:
+/// `$XDG_STATE_HOME/eep/roots/<id>` (eep/docs/CARD.md, "While an app installs").
+pub fn roots_dir() -> PathBuf {
+    crate::xdg::state_home().join("eep/roots")
+}
+
+/// Whether eep has fetched the app a card names: its link in `roots` points at the
+/// card's store path. One `readlink`, so a listing asks every time.
+pub fn fetched(roots: &Path, id: &str, out: &str) -> bool {
+    let plain = !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    plain
+        && !out.is_empty()
+        && std::fs::read_link(roots.join(id)).is_ok_and(|target| target == Path::new(out))
 }
 
 /// The embedded icon of a card's text: a PNG that starts like one, or an SVG.
@@ -152,14 +196,27 @@ fn stamp(meta: &std::fs::Metadata) -> Stamp {
     (meta.len(), mtime, meta.ino())
 }
 
-/// path → (what it was when read, the app or `None` for a broken card)
-type Cache = HashMap<PathBuf, (Stamp, Option<AppCard>)>;
+/// path → (what it was when read, the app and its store path or `None` for a broken
+/// card)
+type Cache = HashMap<PathBuf, (Stamp, Option<(AppCard, String)>)>;
 
 static CARDS: LazyLock<Mutex<Cache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The app a card at `path` is (through a symlink too), or `None` for any other file
-/// and for a card that cannot be read. Cached per path, size and mtime.
+/// and for a card that cannot be read. Cached per path, size and mtime; whether the
+/// app is ready is looked up every time (it changes without the card changing).
 pub fn card(path: &Path) -> Option<AppCard> {
+    card_in(path, &roots_dir())
+}
+
+/// [`card`] with eep's roots folder given (tests).
+pub fn card_in(path: &Path, roots: &Path) -> Option<AppCard> {
+    let (mut app, out) = card_with_out(path)?;
+    app.ready = app.system || fetched(roots, &app.id, &out);
+    Some(app)
+}
+
+fn card_with_out(path: &Path) -> Option<(AppCard, String)> {
     if !is_card_name(&path.file_name()?.to_string_lossy()) {
         return None;
     }
@@ -173,7 +230,9 @@ pub fn card(path: &Path) -> Option<AppCard> {
     {
         return v.clone();
     }
-    let value = std::fs::read_to_string(path).ok().and_then(|t| parse(&t));
+    let value = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| parse_with_out(&t));
     if let Ok(mut cache) = CARDS.lock() {
         if cache.len() >= CACHE_MAX {
             cache.clear();
@@ -181,6 +240,73 @@ pub fn card(path: &Path) -> Option<AppCard> {
         cache.insert(path.to_path_buf(), (key, value.clone()));
     }
     value
+}
+
+/// What eep says about an app it is installing or updating right now (one entry of
+/// its `activity.json`; eep/docs/CARD.md, "While an app installs").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub id: String,
+    pub name: String,
+    /// the app's card in Applications (an install from a store has none until done)
+    #[serde(default)]
+    pub card: Option<String>,
+    /// `install` | `update`
+    pub what: String,
+    /// `waiting` | `downloading` | `finishing` | `failed`
+    pub state: String,
+    /// bytes unpacked so far and in all (0 = not known yet)
+    #[serde(default)]
+    pub done: u64,
+    #[serde(default)]
+    pub total: u64,
+    /// bytes the whole fetch downloads (0 = not known yet)
+    #[serde(default)]
+    pub download: u64,
+    /// why it failed, in eep's words
+    #[serde(default)]
+    pub error: Option<String>,
+    /// the eep that says so: an entry of one that is gone is not read
+    #[serde(default, skip_serializing)]
+    pid: u32,
+}
+
+#[derive(Deserialize)]
+struct ActivityFile {
+    eep_activity: u32,
+    #[serde(default)]
+    apps: Vec<Activity>,
+}
+
+/// The activity format this build reads.
+const ACTIVITY_VERSION: u32 = 0;
+
+/// Where eep says what it is fetching: `$XDG_RUNTIME_DIR/eep/activity.json`, or its
+/// cache folder in a session without a runtime directory (eep's `paths.rs`).
+pub fn activity_file() -> PathBuf {
+    crate::xdg::runtime_dir()
+        .map(|d| d.join("eep"))
+        .unwrap_or_else(|| crate::xdg::cache_home().join("eep"))
+        .join("activity.json")
+}
+
+/// What eep is installing right now: the entries of eeps that are still running
+/// (none when there is no file, it is from a newer eep, or it cannot be read).
+pub fn read_activity(file: &Path) -> Vec<Activity> {
+    let Some(f) = std::fs::read(file)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<ActivityFile>(&b).ok())
+    else {
+        return Vec::new();
+    };
+    if f.eep_activity != ACTIVITY_VERSION {
+        return Vec::new();
+    }
+    f.apps
+        .into_iter()
+        .filter(|a| Path::new(&format!("/proc/{}", a.pid)).exists())
+        .collect()
 }
 
 #[cfg(test)]
@@ -220,6 +346,9 @@ mod tests {
                 version: "160.0.1".into(),
                 kind: "gui".into(),
                 icon: true,
+                system: false,
+                from: String::new(),
+                ready: false,
             })
         );
         let icon = parse_icon(&text).unwrap();
@@ -305,6 +434,87 @@ mod tests {
         std::fs::write(&big, vec![b'#'; MAX_CARD_BYTES as usize + 1]).unwrap();
         assert!(card(&big).is_none());
         assert!(read_icon(&big).is_none());
+    }
+
+    #[test]
+    fn found_apps_are_ready_and_say_where_they_came_from() {
+        let app = parse(
+            "eep = 0\nid = \"sys-gimp\"\nname = \"GIMP\"\nsource = \"system\"\n\
+             from = \"pacman\"\nentry = \"gimp.desktop\"\nversion = \"3.2.8-1\"\n",
+        )
+        .unwrap();
+        assert!(app.system && app.ready);
+        assert_eq!(app.from, "pacman");
+        let eep = parse(&firefox("")).unwrap();
+        assert!(!eep.system && !eep.ready && eep.from.is_empty());
+    }
+
+    #[test]
+    fn an_eep_app_is_ready_once_its_root_links_to_the_cards_store_path() {
+        let state = tempfile::tempdir().unwrap();
+        let roots = state.path().join("eep/roots");
+        std::fs::create_dir_all(&roots).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Firefox.eep");
+        std::fs::write(&path, firefox("")).unwrap();
+        let ready = || card_in(&path, &roots).unwrap().ready;
+        assert!(!ready(), "just arrived: not fetched yet");
+        // another version is installed: this card's app is not
+        std::os::unix::fs::symlink("/nix/store/y-firefox-159", roots.join("firefox")).unwrap();
+        assert!(!ready());
+        std::fs::remove_file(roots.join("firefox")).unwrap();
+        std::os::unix::fs::symlink("/nix/store/x-firefox", roots.join("firefox")).unwrap();
+        assert!(ready(), "the same card, now fetched");
+        // an id that is no id never reaches outside the roots; no store path, no app
+        assert!(!fetched(&roots, "../firefox", "/nix/store/x-firefox"));
+        assert!(!fetched(&roots, "firefox", ""));
+    }
+
+    #[test]
+    fn activity_is_read_from_live_eeps_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("activity.json");
+        assert!(
+            read_activity(&file).is_empty(),
+            "no file: nothing in flight"
+        );
+        let me = std::process::id();
+        std::fs::write(
+            &file,
+            format!(
+                r#"{{"eep_activity":0,"updated":1763895000,"apps":[
+                  {{"id":"blender","name":"Blender","card":"/home/you/Applications/Blender.eep",
+                    "what":"install","state":"downloading","done":40,"total":100,"download":30,"pid":{me}}},
+                  {{"id":"ghost","name":"Ghost","what":"install","state":"failed",
+                    "error":"no connection","pid":{me}}},
+                  {{"id":"gone","name":"Gone","what":"update","state":"waiting","pid":4000000000}}]}}"#
+            ),
+        )
+        .unwrap();
+        let now = read_activity(&file);
+        assert_eq!(now.len(), 2, "the eep that is gone says nothing");
+        assert_eq!(
+            (
+                now[0].id.as_str(),
+                now[0].state.as_str(),
+                now[0].done,
+                now[0].total
+            ),
+            ("blender", "downloading", 40, 100)
+        );
+        assert_eq!(
+            now[0].card.as_deref(),
+            Some("/home/you/Applications/Blender.eep")
+        );
+        assert_eq!(now[1].error.as_deref(), Some("no connection"));
+        // what the page gets: no pid
+        let json = serde_json::to_value(&now[0]).unwrap();
+        assert!(json.get("pid").is_none() && json["download"] == 30);
+        // a newer format, or no JSON at all: nothing
+        std::fs::write(&file, r#"{"eep_activity":7,"apps":[]}"#).unwrap();
+        assert!(read_activity(&file).is_empty());
+        std::fs::write(&file, "half a fi").unwrap();
+        assert!(read_activity(&file).is_empty());
     }
 
     #[test]

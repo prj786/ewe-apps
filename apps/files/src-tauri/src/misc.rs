@@ -135,6 +135,12 @@ pub fn komble_install(path: &Path) -> Result<(), String> {
     detach(c).map_err(|e| e.to_string())
 }
 
+/// Komble on its own: the store.
+pub fn open_komble() -> Result<(), String> {
+    let komble = on_path("komble").ok_or("Komble is not installed")?;
+    detach(Command::new(komble)).map_err(|e| e.to_string())
+}
+
 /// `eep open <card>` (eep/docs/CARD.md): copies the card into ~/Applications when it is
 /// elsewhere, installs what it names and becomes the app. `on_error` gets eep's error in
 /// words when it could not (it prints one `{"ok":false,"error":…}` line and exits 0).

@@ -13,6 +13,14 @@ export interface AppCard {
   kind: string
   /** the card embeds an icon (the core's `/app-icon`) */
   icon: boolean
+  /** an app that was on the computer already (pacman, an AppImage, Steam…): its card
+   *  shows or hides it; nothing is downloaded */
+  system: boolean
+  /** where a found app came from (`pacman`, `appimage`, `steam`…), else empty */
+  from: string
+  /** the app can start now; an eep app whose card just arrived in Applications is
+   *  not ready until eep has fetched it */
+  ready: boolean
 }
 
 export interface FsEntry {

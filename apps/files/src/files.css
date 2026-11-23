@@ -412,6 +412,110 @@
   overflow-wrap: anywhere;
 }
 
+/* Every tile is one height: a name keeps its two lines whether it fills them or not.
+   The folder is windowed by ONE row height (pane.tsx), so rows must not differ. */
+.fm-tile .fm-name {
+  min-height: calc(2 * var(--line-height-s));
+}
+
+.fm-tile .fm-rename {
+  height: calc(2 * var(--line-height-s));
+}
+
+/* an app that is not simply ready: the name's second line says how it stands */
+.fm-label {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.fm-tile .fm-label .fm-name {
+  min-height: var(--line-height-s);
+  -webkit-line-clamp: 1;
+}
+
+.fm-app-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fm-app-state.failed {
+  color: var(--danger);
+}
+
+.fm-row .fm-app-state {
+  color: var(--accent-text);
+}
+
+/* the icon steps back behind a ring that fills as the app comes in */
+.fm-icon.pending > .fm-thumb,
+.fm-icon.pending > .icon {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+.fm-ring {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.fm-ring svg {
+  width: 56%;
+  height: 56%;
+  transform: rotate(-90deg);
+}
+
+.fm-row .fm-ring svg {
+  width: 100%;
+  height: 100%;
+}
+
+.fm-ring-track,
+.fm-ring-fill {
+  fill: none;
+  stroke-width: 4;
+}
+
+.fm-ring-track {
+  stroke: var(--border-strong);
+}
+
+.fm-ring-fill {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--dur-fast) linear;
+}
+
+.fm-ring.turning svg {
+  animation: fm-ring-turn 0.8s linear infinite;
+}
+
+.fm-ring.failed {
+  color: var(--danger);
+}
+
+@keyframes fm-ring-turn {
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-ring.turning svg {
+    animation: none;
+  }
+}
+
 .fm-row .fm-name {
   display: block;
   width: auto;
@@ -2118,4 +2222,128 @@
   .fm-tabs .tab.selected {
     max-width: 100%;
   }
+}
+
+/* ---- installing an app (install.tsx) ------------------------------------------ */
+
+.fm-place-state.installing {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the app's icon and name over its Install button */
+.install {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+
+.install-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(2 * var(--control-xl));
+  height: calc(2 * var(--control-xl));
+  margin-bottom: var(--space-xs);
+  color: var(--text-secondary);
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+.install-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.install-icon.dim {
+  opacity: 0.6;
+}
+
+.install-name {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-snug);
+  color: var(--text-primary);
+}
+
+.install-line {
+  min-height: var(--line-height-md);
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.install-progress {
+  max-width: var(--panel-sm);
+  margin-top: var(--space-xs);
+}
+
+.install-error {
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-s);
+  border-radius: var(--primary);
+  background: var(--danger-subtle);
+  color: var(--danger);
+  font-size: var(--font-size-s);
+  line-height: var(--line-height-s);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.install-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+  width: 100%;
+  max-width: calc(var(--panel-sm) - 2 * var(--space-lg));
+  margin-top: var(--space-md);
+}
+
+.install-actions .btn {
+  justify-content: center;
+}
+
+.install-actions .btn--primary,
+.install-actions .btn--secondary {
+  height: var(--control-xl);
+  font-size: var(--font-size-md);
+}
+
+.install-x {
+  position: absolute;
+  top: var(--space-s);
+  right: var(--space-s);
+}
+
+/* as a dialog over a Files window */
+.install-dialog {
+  position: relative;
+  max-width: var(--panel-sm);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+}
+
+/* as its own small window: the card is the window */
+.install-window {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-lg);
+  background: var(--surface-raised);
 }

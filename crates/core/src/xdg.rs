@@ -33,6 +33,18 @@ pub fn cache_home() -> PathBuf {
     base("XDG_CACHE_HOME", &[".cache"])
 }
 
+pub fn state_home() -> PathBuf {
+    base("XDG_STATE_HOME", &[".local", "state"])
+}
+
+/// `$XDG_RUNTIME_DIR` (gone at sign-out), when the session has one.
+pub fn runtime_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+}
+
 /// `file://` URI for an absolute path, escaped the way GLib's `g_filename_to_uri`
 /// does (what the thumbnail spec hashes and what GTK writes into recently-used.xbel).
 pub fn file_uri(path: &std::path::Path) -> String {

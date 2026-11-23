@@ -39,6 +39,27 @@ pub struct RunHooks {
     /// Adds to the Tauri builder before it runs, for an app with Tauri plugins of its
     /// own (`Box::new(|b| b.plugin(tauri_plugin_dialog::init()))` — ewe Viewer).
     pub configure: Option<ConfigureHook>,
+    /// Asked what the first window is, for a launch that wants another one than the
+    /// app's usual (ewe Files' small "Install" window). `None`: the usual one.
+    pub first_window: Option<FirstWindowHook>,
+}
+
+/// See [`RunHooks::first_window`].
+pub type FirstWindowHook = Box<dyn FnOnce(&Launch) -> Option<WindowShape> + Send>;
+
+/// A window that is not the app's usual one: a small card, like a dialog. Floating
+/// it, and where, is the compositor's (a window rule on its first `title`).
+#[derive(Debug, Clone)]
+pub struct WindowShape {
+    /// the title it opens with (what a compositor's window rule matches)
+    pub title: String,
+    pub width: f64,
+    pub height: f64,
+    /// `false`: the window keeps exactly this size
+    pub resizable: bool,
+    /// Runs in the page before its own scripts: how the page learns which view it
+    /// is (`window.__eweView = "install"`), before the first paint.
+    pub script: Option<String>,
 }
 
 /// See [`RunHooks::configure`].
@@ -81,6 +102,7 @@ where
     let window_spec = spec.clone();
     let second_launch = hooks.second_launch;
     let setup = hooks.setup;
+    let first_shape = hooks.first_window.and_then(|ask| ask(&launch));
     let configure = hooks
         .configure
         .unwrap_or_else(|| Box::new(|builder| builder));
@@ -126,7 +148,10 @@ where
                 app.manage(watch);
             }
 
-            open_window(app.handle(), &window_spec, "main")?;
+            match &first_shape {
+                Some(shape) => open_shaped(app.handle(), "main", shape)?,
+                None => open_window(app.handle(), &window_spec, "main")?,
+            };
             if let Some(setup) = setup {
                 setup(app.handle())?;
             }
@@ -146,6 +171,29 @@ pub fn open_window(app: &AppHandle, spec: &AppSpec, label: &str) -> tauri::Resul
         .min_inner_size(spec.min_width, spec.min_height)
         .decorations(false)
         .build()
+}
+
+/// Open a window of another shape than the app's usual one (see [`WindowShape`]).
+/// The capability file must list the label, as for [`open_window`].
+pub fn open_shaped(
+    app: &AppHandle,
+    label: &str,
+    shape: &WindowShape,
+) -> tauri::Result<WebviewWindow> {
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+        .title(&shape.title)
+        .inner_size(shape.width, shape.height)
+        .resizable(shape.resizable)
+        .decorations(false);
+    if !shape.resizable {
+        builder = builder
+            .min_inner_size(shape.width, shape.height)
+            .max_inner_size(shape.width, shape.height);
+    }
+    if let Some(script) = &shape.script {
+        builder = builder.initialization_script(script);
+    }
+    builder.build()
 }
 
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {

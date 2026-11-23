@@ -27,6 +27,7 @@ import {
   formatBytes,
   isExecutable,
   joinPath,
+  listWindow,
   parentOf,
   sortEntries,
   syncLabel,
@@ -34,6 +35,7 @@ import {
   thumbSizeFor,
   type AppEntry,
   type AppListing,
+  type AppStanding,
   type FileKind,
   type FsPlace,
   type FsPlaceSync,
@@ -141,6 +143,17 @@ export interface PaneHandle {
   hasFocusInInput(): boolean
 }
 
+/** An app's card in Applications that is not simply ready: how it stands. */
+export interface AppState {
+  standing: Exclude<AppStanding, 'ready'>
+  /** "Installing 43%" */
+  label: string
+  /** 0–1; null while the size is not known (a ring that turns) */
+  fraction: number | null
+  /** why it failed, in eep's words */
+  error: string | null
+}
+
 export interface PaneCtx {
   prefsFor(path: string): ViewPrefs
   setPref(path: string, patch: Partial<ViewPrefs>): void
@@ -149,6 +162,9 @@ export interface PaneCtx {
   thumbUrl(path: string, size: 128 | 256 | 512): string
   /** the icon inside an eep card */
   appIconUrl(path: string, mtime: number): string
+  /** how an app's card in Applications stands when it is not simply ready (still
+   *  installing, failed, updating); null for every other row */
+  appState(entry: Row): AppState | null
   pdfThumb(path: string): Promise<string | null>
   open(entry: Row, pane: PaneHandle, how: 'default' | 'tab' | 'window'): void
   entryMenu(pane: PaneHandle, entry: Row, at: Point): void
@@ -286,7 +302,7 @@ export function Pane(props: PaneProps): JSX.Element {
   }
 
   const headHeight = () => (prefs().view === 'list' ? 36 : 0)
-  /** Row height and columns: measured from the first rendered item, else estimated. */
+  /** Row height and columns: measured, else estimated. */
   const geometry = (): { row: number; cols: number } => {
     const m = measured()
     if (m !== null && m.cols > 0 && m.row > 0) return m
@@ -298,40 +314,53 @@ export function Pane(props: PaneProps): JSX.Element {
       cols: Math.max(1, Math.floor((width + 4) / (tile + 4))),
     }
   }
+  // The measurement must not depend on WHICH rows are rendered: it decides which rows
+  // are rendered. (0.3.1 took the height of the first rendered row and counted the
+  // tiles beside it. In a folder with one- and two-line names — Applications — rows
+  // differed, each window measured another height, each height asked for another
+  // window, and the page never came back from its microtasks.) So: every tile is one
+  // height (files.css keeps two lines for a name), the height is one tile's, and the
+  // columns are the grid's own tracks.
+  let measures = 0
   const measure = () => {
     const el = content
     if (el === undefined) return
-    const items = [...el.querySelectorAll<HTMLElement>('.fm-tile, .fm-row')]
-    const first = items[0]
-    if (first === undefined) return setMeasured(null)
-    const top = first.offsetTop
-    const cols =
-      prefs().view === 'list' ? 1 : Math.max(1, items.filter((t) => t.offsetTop === top).length)
-    const second = items.find((t) => t.offsetTop > top)
-    const gap = prefs().view === 'list' ? 0 : 4
-    const row = second === undefined ? first.offsetHeight + gap : second.offsetTop - top
-    const next = { row, cols }
+    const first = el.querySelector<HTMLElement>('.fm-tile, .fm-row')
+    if (first === null) return
+    let next: { row: number; cols: number }
+    if (prefs().view === 'list') next = { row: first.offsetHeight, cols: 1 }
+    else {
+      const style = getComputedStyle(el)
+      const tracks = style.gridTemplateColumns.split(' ').filter((t) => t.endsWith('px'))
+      if (tracks.length === 0) return
+      const gap = Number.parseFloat(style.rowGap)
+      next = { row: first.offsetHeight + (Number.isFinite(gap) ? gap : 0), cols: tracks.length }
+    }
+    if (next.row <= 0) return
     const m = measured()
-    if (m?.row !== next.row || m.cols !== next.cols) setMeasured(next)
+    if (m?.row === next.row && m.cols === next.cols) return
+    // a seat belt: whatever a future stylesheet does, at most a few corrections per
+    // frame, never a loop that starves the page
+    if (measures === 0) requestAnimationFrame(() => (measures = 0))
+    if (++measures > 4) return
+    setMeasured(next)
   }
   const window_ = createMemo(() => {
-    const total = rows().length
     const { row, cols } = geometry()
-    const h = viewport().height || 720
-    const firstRow = Math.max(0, Math.floor((scrollTop() - headHeight()) / row) - OVERSCAN)
-    const visibleRows = Math.ceil(h / row) + OVERSCAN * 2 + 1
-    const start = Math.min(total, firstRow * cols)
-    const end = Math.min(total, (firstRow + visibleRows) * cols)
-    const totalRows = Math.ceil(total / cols)
-    return {
-      start,
-      end,
-      before: firstRow * row,
-      after: Math.max(0, (totalRows - firstRow - visibleRows) * row),
-    }
+    return listWindow({
+      total: rows().length,
+      row,
+      cols,
+      scrollTop: scrollTop(),
+      viewport: viewport().height || 720,
+      head: headHeight(),
+      overscan: OVERSCAN,
+    })
   })
   const shown = createMemo(() => rows().slice(window_().start, window_().end))
-  createEffect(on([shown, () => prefs().view, () => prefs().zoom], () => queueMicrotask(measure)))
+  createEffect(
+    on([shown, () => prefs().view, () => prefs().zoom, viewport], () => queueMicrotask(measure)),
+  )
   createEffect(
     on([() => prefs().view, () => prefs().zoom, () => mode()], () => setMeasured(null), {
       defer: true,
@@ -612,18 +641,33 @@ export function Pane(props: PaneProps): JSX.Element {
       return `${n} result${n === 1 ? '' : 's'}${s.done ? '' : '…'} for “${s.filters.query}”${s.everywhere ? ' everywhere' : ''}`
     }
     if (listing() === null && path() !== TRASH_PATH) return ''
+    const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
     const folders = shown.filter((e) => e.dir).length
-    const files = shown.length - folders
+    // in Applications a card is an app, and is counted as one
+    const apps = isAppsFolder() ? shown.filter((e) => e.app !== undefined).length : 0
+    const files = shown.length - folders - apps
     const counts = [
-      folders > 0 ? `${folders} folder${folders === 1 ? '' : 's'}` : '',
-      files > 0 ? `${files} file${files === 1 ? '' : 's'}` : '',
+      apps > 0 ? plural(apps, 'app') : '',
+      folders > 0 ? plural(folders, 'folder') : '',
+      files > 0 ? plural(files, 'file') : '',
     ]
       .filter((x) => x !== '')
       .join(', ')
     const parts = [counts === '' ? (path() === TRASH_PATH ? 'Trash is empty' : 'Empty') : counts]
+    if (apps > 0) {
+      const standings = shown.map((e) => ctx().appState(e)?.standing)
+      const busy = standings.filter(
+        (st) => st === 'waiting' || st === 'installing' || st === 'finishing',
+      ).length
+      const failed = standings.filter((st) => st === 'failed').length
+      if (busy > 0) parts.push(`${busy} installing`)
+      if (failed > 0) parts.push(`${failed} not installed`)
+    }
     const sel = selectedRows()
     if (sel.length > 0) {
-      const bytes = sel.filter((e) => !e.dir).reduce((sum, e) => sum + e.size, 0)
+      const bytes = sel
+        .filter((e) => !e.dir && !(isAppsFolder() && e.app !== undefined))
+        .reduce((sum, e) => sum + e.size, 0)
       parts.push(`${sel.length} selected${bytes > 0 ? ` (${formatBytes(bytes)})` : ''}`)
     }
     const free = listing()?.free
@@ -679,6 +723,12 @@ export function Pane(props: PaneProps): JSX.Element {
     const wantsAppIcon = () => p.entry.app?.icon === true && thumb() !== 'failed'
     const sync = () => (p.entry.dir ? syncedFolders().get(p.entry.path) : undefined)
     const exec = () => isExecutable(p.entry) && kind() !== 'package'
+    // an app that is still installing: its icon steps back behind a ring that fills
+    const app = () => ctx().appState(p.entry)
+    const pending = () => {
+      const a = app()
+      return a !== null && a.standing !== 'updating' ? a : null
+    }
     return (
       <span
         class={`fm-icon kind-${kind()}`}
@@ -687,6 +737,7 @@ export function Pane(props: PaneProps): JSX.Element {
           exec: exec(),
           'has-thumb': ((wantsThumb() || wantsAppIcon()) && thumb() === 'ok') || pdf() !== null,
           link: p.entry.kind === 'link',
+          pending: pending() !== null,
         }}
       >
         <Icon name={exec() && kind() === 'other' ? 'terminal' : KIND_ICON[kind()]} size={p.size} />
@@ -736,7 +787,66 @@ export function Pane(props: PaneProps): JSX.Element {
             onError={() => setThumb('failed')}
           />
         </Show>
+        <Show when={pending()}>
+          {(a) => (
+            <span
+              class="fm-ring"
+              classList={{
+                turning: a().fraction === null && a().standing !== 'failed',
+                failed: a().standing === 'failed',
+              }}
+              role="progressbar"
+              aria-label={a().label}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={ringPercent(a().fraction)}
+            >
+              <Show
+                when={a().standing !== 'failed'}
+                fallback={<Icon name="circle-alert" size={p.grid ? 20 : 12} />}
+              >
+                <svg viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="fm-ring-track" cx="18" cy="18" r="15" />
+                  <circle
+                    class="fm-ring-fill"
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    pathLength="100"
+                    stroke-dasharray={`${ringArc(a().fraction)} 100`}
+                  />
+                </svg>
+              </Show>
+            </span>
+          )}
+        </Show>
       </span>
+    )
+  }
+
+  /** A tile's name; an app that is not ready gives its second line to how it stands. */
+  const TileName = (p: { entry: Row }): JSX.Element => {
+    const app = () => ctx().appState(p.entry)
+    return (
+      <Show
+        when={app()}
+        fallback={
+          <span class="fm-name" dir="auto">
+            {displayName(p.entry)}
+          </span>
+        }
+      >
+        {(a) => (
+          <span class="fm-label">
+            <span class="fm-name" dir="auto">
+              {displayName(p.entry)}
+            </span>
+            <span class="fm-app-state" classList={{ failed: a().standing === 'failed' }}>
+              {a().label}
+            </span>
+          </span>
+        )}
+      </Show>
     )
   }
 
@@ -1055,7 +1165,7 @@ export function Pane(props: PaneProps): JSX.Element {
           <IconButton
             icon="folder-plus"
             label="New folder (Ctrl+Shift+N)"
-            disabled={!(listing()?.writable ?? false) || mode() !== 'folder'}
+            disabled={!(listing()?.writable ?? false) || mode() !== 'folder' || isAppsFolder()}
             onClick={() => ctx().newFolder(handle)}
           />
         </Show>
@@ -1112,7 +1222,8 @@ export function Pane(props: PaneProps): JSX.Element {
                   label: 'New folder',
                   icon: 'folder-plus',
                   hint: 'Ctrl+Shift+N',
-                  disabled: !(listing()?.writable ?? false) || mode() !== 'folder',
+                  disabled:
+                    !(listing()?.writable ?? false) || mode() !== 'folder' || isAppsFolder(),
                   run: () => ctx().newFolder(handle),
                 })
               items.push(
@@ -1303,7 +1414,13 @@ export function Pane(props: PaneProps): JSX.Element {
                     <span class="fm-col fm-col-size">
                       {entry().dir ? '' : formatBytes(entry().size)}
                     </span>
-                    <span class="fm-col fm-col-kind">{KIND_LABEL[fileKind(entry())]}</span>
+                    <span
+                      class="fm-col fm-col-kind"
+                      classList={{ 'fm-app-state': ctx().appState(entry()) !== null }}
+                      title={ctx().appState(entry())?.error ?? undefined}
+                    >
+                      {ctx().appState(entry())?.label ?? KIND_LABEL[fileKind(entry())]}
+                    </span>
                   </Show>
                   <Show when={mode() === 'trash'}>
                     <span class="fm-col fm-col-where" dir="auto" title={entry().original}>
@@ -1331,21 +1448,16 @@ export function Pane(props: PaneProps): JSX.Element {
                 classList={entryClasses(entry())}
                 title={
                   mode() === 'folder'
-                    ? displayName(entry())
+                    ? [displayName(entry()), ctx().appState(entry())?.error ?? '']
+                        .filter((x) => x !== '')
+                        .join('\n')
                     : `${displayName(entry())}\n${entry().original ?? entry().path}`
                 }
                 {...itemProps(entry)}
                 {...(entry().dir && mode() === 'folder' ? dropHandlers(() => entry().path) : {})}
               >
                 <EntryIcon entry={entry()} size={36} grid />
-                <Show
-                  when={renaming() === entry().path}
-                  fallback={
-                    <span class="fm-name" dir="auto">
-                      {displayName(entry())}
-                    </span>
-                  }
-                >
+                <Show when={renaming() === entry().path} fallback={<TileName entry={entry()} />}>
                   <NameField entry={entry()} />
                 </Show>
                 <Show when={mode() !== 'folder'}>
@@ -1368,6 +1480,16 @@ export function Pane(props: PaneProps): JSX.Element {
       </footer>
     </section>
   )
+}
+
+/** The ring over an app that is installing: its arc out of 100 (a quarter that turns
+ *  while the size is not known, never less than a visible dot). */
+function ringArc(fraction: number | null): number {
+  return fraction === null ? 25 : Math.max(2, Math.round(fraction * 100))
+}
+
+function ringPercent(fraction: number | null): number | undefined {
+  return fraction === null ? undefined : Math.round(fraction * 100)
 }
 
 export function emptyRow(path: string): Row {

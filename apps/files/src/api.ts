@@ -8,8 +8,11 @@ import type {
   AppInfo,
   AppListing,
   ArchiveListing,
+  CardInfo,
   Device,
   DeviceResult,
+  EepActivity,
+  EepAdded,
   FileClipboard,
   FsPlace,
   Launch,
@@ -88,6 +91,14 @@ export const api = {
     invoke<null>('run_executable', { path, terminal }),
   komble: (path: string) => invoke<null>('komble_install', { path }),
   eepOpen: (path: string, id: number) => invoke<null>('eep_open', { path, id }),
+  /** what eep is installing right now (then follow `eep-activity`) */
+  eepActivity: () => invoke<EepActivity[]>('eep_activity'),
+  /** a card before its app is installed: the app, and what eep says it takes */
+  eepCard: (path: string) => invoke<CardInfo>('eep_card', { path }),
+  /** Install: the card moves into Applications and its app is fetched (`eep-add`) */
+  eepAdd: (path: string, id: number) => invoke<null>('eep_add', { path, id }),
+  /** Komble, where apps come from */
+  openStore: () => invoke<null>('open_store'),
   eweSync: (
     op: 'available' | 'pane' | 'add-folder',
     extra: { pane?: string; path?: string } = {},
@@ -113,6 +124,10 @@ export interface Events {
   'size-progress': SizeProgress
   /** `eep open` could not open an app: its error in words */
   'eep-open': { window: string; id: number; error: string }
+  /** what eep is installing changed (every entry, each time) */
+  'eep-activity': EepActivity[]
+  /** an `eep add` this window started is done */
+  'eep-add': EepAdded
   'devices-changed': null
   'device-result': DeviceResult
   'mount-ask': MountAsk

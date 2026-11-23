@@ -102,7 +102,16 @@ describe('entries', () => {
   it('shows an eep card as its app', () => {
     const app = (file: string, name: string) => ({
       ...entry(file),
-      app: { name, id: name.toLowerCase(), version: '1', kind: 'gui', icon: true },
+      app: {
+        name,
+        id: name.toLowerCase(),
+        version: '1',
+        kind: 'gui',
+        icon: true,
+        system: false,
+        from: '',
+        ready: true,
+      },
     })
     const firefox = app('Firefox.eep', 'Firefox')
     // renamed on disk: the card's name still counts

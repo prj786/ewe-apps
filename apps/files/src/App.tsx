@@ -21,7 +21,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   TRASH_PATH,
   VIEWABLE_KINDS,
+  activityFraction,
   appIconUrl,
+  appStanding,
   baseName,
   cardFileName,
   displayName,
@@ -34,6 +36,7 @@ import {
   rawUrl,
   readText,
   samePlaces,
+  standingLabel,
   syncAction,
   thumbUrl,
   uniqueName,
@@ -84,12 +87,14 @@ import {
   RenameManyDialog,
   RunDialog,
 } from './dialogs'
+import { InstallDialog, newAddId, useEepActivity, type BackgroundAdd } from './install'
 import { OpsPanel } from './ops-panel'
 import {
   Pane,
   SORT_KEYS,
   SORT_LABELS,
   emptyRow,
+  type AppState,
   type PaneCtx,
   type PaneHandle,
   type Row,
@@ -119,6 +124,8 @@ type Dialog =
   | { kind: 'run'; entry: AppEntry; pane: PaneHandle }
   | { kind: 'archive'; entry: Row; pane: PaneHandle | null }
   | { kind: 'extract-to'; entry: Row; pane: PaneHandle | null }
+  /** a card that is not in Applications: the app, and its Install button */
+  | { kind: 'install'; path: string }
   | {
       kind: 'confirm'
       title: string
@@ -361,9 +368,21 @@ export function App(): JSX.Element {
 
   const startOp = (kind: OpKind, sources: string[], dest: string | null) => {
     if (sources.length === 0 && kind !== 'empty-trash') return
+    // cards that land in Applications are apps being installed: the copy is over in
+    // an instant, the install is what takes time — and Applications shows it
+    const cards =
+      (kind === 'copy' || kind === 'move') && dest !== null && dest === appsDir()
+        ? sources.filter((p) => /\.eep$/i.test(p)).length
+        : 0
     void api.opStart(kind, sources, dest).then(() => {
       refreshOps()
-      if (kind === 'copy' || kind === 'move') setOpsOpen(true)
+      if (cards > 0 && cards === sources.length) {
+        const there = dest ?? ''
+        if (activePath() !== there)
+          toast(cards === 1 ? 'Installing the app…' : `Installing ${cards} apps…`, {
+            action: { label: 'Show', run: () => activePane()?.go(there) },
+          })
+      } else if (kind === 'copy' || kind === 'move') setOpsOpen(true)
     })
   }
 
@@ -373,16 +392,63 @@ export function App(): JSX.Element {
     return row === undefined ? baseName(path) : displayName(row)
   }
 
-  /** eep cards in eep's Applications folder: taking one out removes the app (eep watch) */
+  // ---- apps ---------------------------------------------------------------------------
+  // Applications is not a folder like the others: a card in it IS an app. It starts on
+  // a click, taking it out removes the app (eep watch), and one that just arrived is
+  // still installing — eep says how far it is (its activity file).
+
   const appsDir = () => places().find((p) => p.id === 'applications')?.path ?? null
-  const removesApps = (rows: readonly FsEntry[]): boolean => {
+  const inApps = (path: string): boolean => {
     const dir = appsDir()
-    return (
-      dir !== null &&
-      rows.length > 0 &&
-      rows.every((r) => r.app !== undefined && parentOf(r.path) === dir)
-    )
+    return dir !== null && parentOf(path) === dir
   }
+  /** every row is an app's card in Applications */
+  const removesApps = (rows: readonly FsEntry[]): boolean =>
+    rows.length > 0 && rows.every((r) => r.app !== undefined && inApps(r.path))
+
+  const activity = useEepActivity()
+  const liveOf = (entry: FsEntry) => activity().find((a) => a.id === entry.app?.id)
+  /** how an app's card in Applications stands when it is not simply ready */
+  const appState = (entry: FsEntry): AppState | null => {
+    const app = entry.app
+    if (app === undefined || !inApps(entry.path)) return null
+    const live = liveOf(entry)
+    const standing = appStanding(app, live)
+    if (standing === 'ready') return null
+    return {
+      standing,
+      label: standingLabel(standing, live),
+      fraction: activityFraction(live),
+      error: standing === 'failed' ? (live?.error ?? null) : null,
+    }
+  }
+  // An install that ends (or fails) changes what a card is without touching the card:
+  // the folder is read again whenever the set of apps eep works on changes.
+  let lastLive = ''
+  createEffect(
+    on(
+      activity,
+      (list) => {
+        const now = list
+          .map((a) => `${a.id}${a.state === 'failed' ? '!' : ''}`)
+          .sort()
+          .join(' ')
+        if (now === lastLive) return
+        lastLive = now
+        const dir = appsDir()
+        for (const pane of panes.values()) if (pane.path() === dir) pane.reload()
+      },
+      { defer: true },
+    ),
+  )
+  /** what the Applications place says beside its name while apps install */
+  const installing = createMemo<string | null>(() => {
+    const busy = activity().filter((a) => a.state !== 'failed' && a.what === 'install')
+    const first = busy[0]
+    if (first === undefined) return null
+    const f = activityFraction(first)
+    return busy.length > 1 ? String(busy.length) : f === null ? '…' : `${Math.floor(f * 100)}%`
+  })
 
   const trashSelected = (pane: PaneHandle, paths: string[]) => {
     if (paths.length === 0) return
@@ -392,7 +458,9 @@ export function App(): JSX.Element {
     }
     const first = nameOf(paths[0] ?? '', pane)
     const chosen = new Set(paths)
-    const apps = removesApps(pane.rows().filter((r) => chosen.has(r.path)))
+    const rows = pane.rows().filter((r) => chosen.has(r.path))
+    const apps = removesApps(rows)
+    const verb = apps ? removal(rows).done : ''
     void api.opStart('trash', paths, null).then((id) => {
       refreshOps()
       const watch = onEvent('op-progress', (p) => {
@@ -402,8 +470,8 @@ export function App(): JSX.Element {
           say(
             apps
               ? paths.length === 1
-                ? `Removed ${first}`
-                : `Removed ${paths.length} apps`
+                ? `${verb} ${first}`
+                : `${verb} ${paths.length} apps`
               : paths.length === 1
                 ? `Moved “${first}” to Trash`
                 : `Moved ${paths.length} items to Trash`,
@@ -418,6 +486,25 @@ export function App(): JSX.Element {
         }
       })
     })
+  }
+
+  /** What taking apps out of Applications is called: an app that is still installing
+   *  is cancelled, one that was on the computer already is only hidden (nothing is
+   *  uninstalled), an eep app is removed. */
+  const removal = (rows: readonly FsEntry[]): { label: string; done: string } => {
+    const n = rows.length
+    const pending = rows.every((r) => {
+      const st = appState(r)?.standing
+      return st !== undefined && st !== 'updating'
+    })
+    if (pending)
+      return {
+        label: n === 1 ? 'Cancel install' : `Cancel ${n} installs`,
+        done: 'Cancelled installing',
+      }
+    if (rows.every((r) => r.app?.system === true))
+      return { label: n === 1 ? 'Hide app' : `Hide ${n} apps`, done: 'Hid' }
+    return { label: n === 1 ? 'Remove app' : `Remove ${n} apps`, done: 'Removed' }
   }
 
   const confirmDelete = (paths: string[]) => {
@@ -466,6 +553,11 @@ export function App(): JSX.Element {
 
   const setClip = (mode: 'copy' | 'cut', paths: string[]) => {
     if (paths.length === 0) return
+    if (mode === 'cut' && paths.some((p) => inApps(p) && /\.eep$/i.test(p))) {
+      // cut + paste would uninstall the app on the way
+      say('Apps stay in Applications. To remove one, use Remove app.')
+      return
+    }
     void api.clipboardSet(mode, paths).then(() => {
       setCutPaths(mode === 'cut' ? new Set<string>(paths) : new Set<string>())
       say(
@@ -531,22 +623,58 @@ export function App(): JSX.Element {
    *  gives up, its words replace the "Opening…" toast (`eep-open`) */
   const opening = new Map<number, number>()
   let nextOpen = 1
-  const openApp = (entry: FsEntry) => {
-    if (tools()?.eep !== true) {
-      // Without eep a card is only a small text file: handing it to the
-      // default app for text (or whatever claims it) opened an editor or a
-      // folder instead of the app. Say what is missing instead.
-      say(`To open ${displayName(entry)}, update ewe: it brings eep, the app manager`, 'danger')
-      return
-    }
+  const hasEep = (entry: FsEntry): boolean => {
+    if (tools()?.eep === true) return true
+    // Without eep a card is only a small text file: handing it to the
+    // default app for text (or whatever claims it) opened an editor or a
+    // folder instead of the app. Say what is missing instead.
+    say(`To open ${displayName(entry)}, update ewe: it brings eep, the app manager`, 'danger')
+    return false
+  }
+  const startApp = (path: string, name: string) => {
     const id = nextOpen++
-    opening.set(id, toast(`Opening ${displayName(entry)}…`))
-    api.eepOpen(entry.path, id).catch(() => {
+    opening.set(id, toast(`Opening ${name}…`))
+    api.eepOpen(path, id).catch((e: unknown) => {
       const shown = opening.get(id)
       opening.delete(id)
       if (shown !== undefined) dismissToast(shown)
-      void openExternal([entry.path])
+      say(errorText(e), 'danger')
     })
+  }
+  // installs started here that no view is watching: `eep-add` says how they ended
+  const background = new Map<number, string>()
+  const watchAdd = (add: BackgroundAdd) => background.set(add.id, add.name)
+  /** Install now (a card in Applications that eep has not fetched, or could not) */
+  const installNow = (entry: FsEntry) => {
+    const name = displayName(entry)
+    const id = newAddId()
+    watchAdd({ id, name })
+    say(`Installing ${name}…`)
+    api.eepAdd(entry.path, id).catch((e: unknown) => {
+      background.delete(id)
+      say(errorText(e), 'danger')
+    })
+  }
+  /** A click on an app's card. In Applications the card is the app: it starts — or
+   *  says how far its install is. Anywhere else it is an app to install: its icon and
+   *  name over the Install button. */
+  const openApp = (entry: FsEntry) => {
+    if (!hasEep(entry)) return
+    const name = displayName(entry)
+    if (!inApps(entry.path)) {
+      setDialog({ kind: 'install', path: entry.path })
+      return
+    }
+    const state = appState(entry)
+    if (state === null || state.standing === 'updating') startApp(entry.path, name)
+    else if (state.standing === 'failed') installNow(entry)
+    else if (liveOf(entry) === undefined) installNow(entry)
+    else
+      say(
+        state.standing === 'waiting'
+          ? `${name} is waiting for another install to finish`
+          : `${name} is still installing${state.fraction === null ? '' : ` (${Math.floor(state.fraction * 100)}%)`}`,
+      )
   }
   onCleanup(
     onEvent('eep-open', (r) => {
@@ -556,6 +684,23 @@ export function App(): JSX.Element {
       opening.delete(r.id)
       dismissToast(shown)
       say(r.error, 'danger')
+    }),
+  )
+  onCleanup(
+    onEvent('eep-add', (r) => {
+      if (r.window !== windowLabel()) return
+      const name = background.get(r.id)
+      if (name === undefined) return
+      background.delete(r.id)
+      const card = r.card
+      if (r.ok)
+        toast(`${name} is installed`, {
+          kind: 'success',
+          ...(card === null ? {} : { action: { label: 'Open', run: () => startApp(card, name) } }),
+        })
+      // a card that left Applications stopped its install: nothing went wrong
+      else if (r.error !== null && !r.error.startsWith('stopped'))
+        say(`${name}: ${r.error}`, 'danger')
     }),
   )
 
@@ -761,6 +906,34 @@ export function App(): JSX.Element {
       setMenu({ at, items })
       return
     }
+    if (removesApps(sel)) {
+      // Applications: these are apps, not files
+      const state = appState(entry)
+      const pending = state !== null && state.standing !== 'updating'
+      const busy = pending && state.standing !== 'failed' && liveOf(entry) !== undefined
+      items.push(
+        pending
+          ? item(
+              'install',
+              state.standing === 'failed' ? 'Try again' : 'Install now',
+              'download',
+              () => openApp(entry),
+              { disabled: many || busy },
+            )
+          : item('open', 'Open', 'external-link', () => openApp(entry), { disabled: many }),
+        sep(),
+        item('trash', removal(sel).label, 'trash-2', () => trashSelected(pane, paths), {
+          hint: 'Del',
+          danger: true,
+        }),
+        sep(),
+        item('props', 'Properties', 'info', () => setDialog({ kind: 'properties', paths }), {
+          hint: 'Alt+Enter',
+        }),
+      )
+      setMenu({ at, items })
+      return
+    }
     items.push(
       item(
         'open',
@@ -797,11 +970,12 @@ export function App(): JSX.Element {
         items.push(
           item('look', 'Quick look', 'eye', () => quickLook(pane, entry), { hint: 'Space' }),
         )
-      items.push(
-        item('open-with', 'Open with…', 'app-window', () =>
-          setDialog({ kind: 'open-with', paths }),
-        ),
-      )
+      if (entry.app === undefined)
+        items.push(
+          item('open-with', 'Open with…', 'app-window', () =>
+            setDialog({ kind: 'open-with', paths }),
+          ),
+        )
       if (!many && kind === 'archive') {
         items.push(
           item('extract', 'Extract here', 'archive', () => extract(entry, null, pane)),
@@ -921,6 +1095,47 @@ export function App(): JSX.Element {
     const writable = pane.listing()?.writable ?? false
     const sync = syncItem(pane.path())
     const p = prefsFor(pane.path())
+    if (pane.path() === appsDir()) {
+      // Applications: where apps come from, not "New folder"
+      setMenu({
+        at,
+        items: [
+          ...(tools()?.komble === true
+            ? [
+                item(
+                  'store',
+                  'Get apps…',
+                  'download',
+                  () => void api.openStore().catch((e: unknown) => say(errorText(e), 'danger')),
+                ),
+                sep(),
+              ]
+            : []),
+          item('paste', 'Paste', 'clipboard', () => pasteInto(pane.path()), {
+            hint: 'Ctrl+V',
+            disabled: !writable,
+          }),
+          item('select-all', 'Select all', 'check', () => pane.selectAll(), { hint: 'Ctrl+A' }),
+          sep(),
+          item(
+            'view-grid',
+            'Grid',
+            p.view === 'grid' ? 'check' : 'layout-grid',
+            () => setPref(pane.path(), { view: 'grid' }),
+            { hint: 'Ctrl+1' },
+          ),
+          item(
+            'view-list',
+            'List',
+            p.view === 'list' ? 'check' : 'list',
+            () => setPref(pane.path(), { view: 'list' }),
+            { hint: 'Ctrl+2' },
+          ),
+          item('refresh', 'Refresh', 'refresh-cw', () => pane.reload(), { hint: 'F5' }),
+        ],
+      })
+      return
+    }
     const newFileItems: MenuEntry[] = [
       item('new-empty', 'Empty file', 'file', () => newFile(pane, null)),
       ...(templates().length > 0
@@ -1156,7 +1371,10 @@ export function App(): JSX.Element {
     }
     const sources = paths.filter((p) => parentOf(p) !== dir && p !== dir)
     if (sources.length === 0) return
-    startOp(copy ? 'copy' : 'move', sources, dir)
+    // an app dragged out of Applications is copied: moving its card away would
+    // uninstall it by accident (only the Trash removes an app)
+    const apps = sources.some((p) => inApps(p) && /\.eep$/i.test(p))
+    startOp(copy || apps ? 'copy' : 'move', sources, dir)
   }
 
   const onDomDrop = (dir: string, e: DragEvent) => {
@@ -1253,6 +1471,8 @@ export function App(): JSX.Element {
       )
     else if (e.key === 'F2') {
       const sel = pane.selected()
+      // an app is called what its card says inside: its file name is nobody's business
+      if (removesApps(sel)) return
       if (sel.length > 1) setDialog({ kind: 'rename-many', entries: sel, pane })
       else pane.startRename()
     } else if (ctrl && e.key === 'a') pane.selectAll()
@@ -1320,6 +1540,9 @@ export function App(): JSX.Element {
         openTab(parent, { activate: first, select: [p] })
         if (!selectMode && !isDir && fileKind(emptyRow(p)) === 'archive')
           openArchive(emptyRow(p), null)
+        else if (!selectMode && !isDir && openWith === null && /\.eep$/i.test(p))
+          // a card is never handed back to its own handler (that is who sent it here)
+          setDialog({ kind: 'install', path: p })
         else if (!selectMode && !isDir && openWith === null) void openExternal([p])
       }
       first = false
@@ -1465,6 +1688,21 @@ export function App(): JSX.Element {
           if (row !== undefined) open(row, pane, 'default')
           break
         }
+        case 'install': {
+          // the Install view of the card `--select=` picked
+          const row = pane.selected()[0] ?? rows.find((r) => r.app !== undefined)
+          if (row !== undefined) setDialog({ kind: 'install', path: row.path })
+          break
+        }
+        case 'app-menu': {
+          // the menu of the app `--select=` picked, in Applications
+          const row = pane.selected()[0] ?? rows.find((r) => r.app !== undefined)
+          if (row !== undefined) {
+            pane.select([row.path])
+            entryMenu(pane, row, { x: 420, y: 230 })
+          }
+          break
+        }
         case 'more':
           document.querySelector<HTMLElement>('.fm-more-btn')?.click()
           break
@@ -1524,7 +1762,11 @@ export function App(): JSX.Element {
             )
               pane.reload()
           }
-          if (p.kind === 'copy' || p.kind === 'move') {
+          // cards that landed in Applications: "Installing…" was said, the tile shows it
+          const installs =
+            p.results.length > 0 &&
+            p.results.every((r) => /\.eep$/i.test(r) && parentOf(r) === appsDir())
+          if ((p.kind === 'copy' || p.kind === 'move') && !installs) {
             const n = p.results.length
             toast(
               `${p.kind === 'copy' ? 'Copied' : 'Moved'} ${n === 1 ? `“${baseName(p.results[0] ?? '')}”` : `${n} items`}`,
@@ -1625,6 +1867,7 @@ export function App(): JSX.Element {
     home,
     thumbUrl: thumb,
     appIconUrl: appIcon,
+    appState,
     pdfThumb: (path) => (server() === null ? Promise.resolve(null) : pdfThumb(raw(path), 256)),
     open,
     entryMenu,
@@ -1787,6 +2030,7 @@ export function App(): JSX.Element {
             activePath={activePath()}
             dropTarget={dropTarget()}
             trashCount={trashRows().length}
+            installing={installing()}
             onOpen={(place) => {
               setPlacesDrawer(false)
               openPlace(place)
@@ -2069,6 +2313,31 @@ export function App(): JSX.Element {
                   />
                 )
               }}
+            </Match>
+            <Match when={d().kind === 'install' && (d() as { path: string }).path} keyed>
+              {(path) => (
+                // keyed: another card is another view (its own state, its own install)
+                <InstallDialog
+                  path={path}
+                  server={server()}
+                  eep={tools()?.eep ?? false}
+                  activity={activity()}
+                  onLeave={watchAdd}
+                  onClose={(running) => {
+                    setDialog(null)
+                    // the card moved into Applications (or went to the Trash)
+                    reloadAll()
+                    if (running !== null) {
+                      const dir = appsDir()
+                      toast(`Installing ${running.name}…`, {
+                        ...(dir === null || activePath() === dir
+                          ? {}
+                          : { action: { label: 'Show', run: () => activePane()?.go(dir) } }),
+                      })
+                    }
+                  }}
+                />
+              )}
             </Match>
             <Match when={d().kind === 'confirm' && d()}>
               {(x) => {

@@ -55,7 +55,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.3.1-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.0-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -249,6 +249,8 @@ src-tauri/src/lib.rs      SPEC, FilesState, every command (list_dir, places, dev
                           `size-progress`
   clip.rs                 the GTK clipboard: x-special/gnome-copied-files + text/uri-list + text
   watch.rs                notify per pane key `<window>/<pane>`, 200 ms debounce, `fs-changed`
+  apps.rs                 eep's side: follows eep's activity file (`eep-activity`), `eep card` for the
+                          Install view (`eep_card`), `eep add` detached (`eep_add` → `eep-add`)
   misc.rs                 terminal (ewe-terminal-here, $TERMINAL, kitty…), set_wallpaper (what Nemo's
                           action ran: `ewe-conf set desktop.wallpapers.default "<json>"` +
                           hypr/scripts/wallpaper.sh --reapply), run_executable (setsid), komble, ewe-sync
@@ -262,6 +264,7 @@ src/App.tsx               the window: tabs (a Solid store), split view, places, 
 src/pane.tsx              one folder view (toolbar, crumbs → path field, filter/type-ahead, grid/list,
                           windowed rows, status) in three modes: folder, trash (Original location /
                           Deleted columns), search results (Where column)
+src/install.tsx           the Install view (a dialog here, and the small `--install=` window)
 src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict, properties with the
                           live size and a permissions editor, open with, connect, credentials, rename
                           many, compress, run, archive, path, confirm); src/ops-panel.tsx;
@@ -286,22 +289,66 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   the computer has one — a found app's card, `source = "system"`, hides or shows its app instead of
   uninstalling it, and reads the same here). `fs::entry_for` reads any
   `.eep` through the core's `eep::card` (TOML; `id` + `name` required, else it is a plain file;
-  cached per path + size + mtime + inode) into `Entry.app` {name, id, version, kind, icon} — also
-  on Trash rows and search hits (found by the app's name too). The page shows `displayName()`
-  (the card's `name`, no `.eep`) everywhere, sorts and filters by it, kind `app` ("App",
-  `app-window`), the icon from `/app-icon` (`fm-thumb--app`: contain, no backdrop). Open = the
-  `eep_open` command (`eep open <card>` through `tool_path`, in its own session). Without eep a
-  card is never handed to the GIO default (that opened a text editor or a folder): Files says
-  "update ewe: it brings eep" (0.3.1; ewe 0.49 depends on eep). eep prints one `{"ok":false,"error":…}`
-  line when it gives up and otherwise execs the app, which keeps eep's stdout: an `sh` pipeline
-  hands Files the first line (read on a thread → `eep-open {window, id, error}` replaces the
-  "Opening…" toast) and drains the rest into /dev/null for the app's life (never a dead pipe).
-  An empty Applications says where apps come from (`fm-empty-hint`). Move to Trash reads "Remove app" / "Remove N apps" when the
-  whole selection is cards in Applications — the same Trash, eep's watcher does the uninstall.
-  Rename keeps `.eep` (`cardStem` in the field, `cardFileName` on commit). The place
-  "Applications" (`$EEP_APPS_DIR` or `~/Applications`, `places::apps_dir`) sits right under Home
-  even before the folder exists; `list_dir` makes it on first open (`ensure_apps_dir`).
-- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|applications|open|more|tabs|compress`
+  cached per path + size + mtime + inode) into `Entry.app` {name, id, version, kind, icon, system,
+  from, ready} — also on Trash rows and search hits (found by the app's name too). The page shows
+  `displayName()` (the card's `name`, no `.eep`) everywhere, sorts and filters by it, kind `app`
+  ("App", `app-window`), the icon from `/app-icon` (`fm-thumb--app`: contain, no backdrop).
+- **Applications is not a folder like the others** (0.4, eep 0.3; `App.tsx` "apps", `install.tsx`,
+  `src-tauri/apps.rs`). A card there is an app:
+  - **Ready or not.** `AppCard.ready` (the core's `eep::fetched`, asked on every listing — never
+    cached, it changes without the card changing): an eep app is ready when
+    `$XDG_STATE_HOME/eep/roots/<id>` links to the card's `out`; a found app always is. How far an
+    install is comes from eep's activity file (`$XDG_RUNTIME_DIR/eep/activity.json`): `apps.rs`
+    follows it (notify on the folder, plus a re-read every 3 s while something is in flight — an
+    eep that was killed says nothing more; entries of a dead pid are not read) and emits
+    `eep-activity [entries]`; `useEepActivity()` keeps it. `appStanding(app, activity)` in
+    `@ewe/shared` → `ready | updating | waiting | installing | finishing | failed`; a tile that is
+    not ready dims its icon behind a ring (`.fm-ring`, an arc out of 100; it turns while the size
+    is unknown) and gives the name's second line to "Installing 43%" (`.fm-label`), the list's Type
+    column says the same, the Applications place shows "43%", the status line counts
+    "N installing". When the set of apps eep works on changes, panes on Applications reload (an
+    install that ends does not touch the card).
+  - **A click** (`openApp`): ready → `eep open <card>` (`eep_open`: eep execs the app, which keeps
+    eep's stdout — an `sh` pipeline hands Files the first line → `eep-open {window, id, error}`
+    replaces the "Opening…" toast, and drains the rest for the app's life). Still installing → a
+    toast says how far. Waiting with no eep at it, or failed → `eep_add` (Install now).
+  - **Menus**: Open (or Install now / Try again) · Remove app (a found app: Hide app; one still
+    installing: Cancel install — the card goes to the Trash and eep drops the download) ·
+    Properties. No Open with, Cut, Rename (F2 does nothing: an app is called what its card says
+    inside), Compress, links. The background: Get apps… (Komble), Paste, Select all, Grid/List,
+    Refresh. New folder is off. Ctrl+X refuses ("Apps stay in Applications"); a card dragged OUT
+    is copied, never moved (only the Trash removes an app); cards copied or moved IN say
+    "Installing…" (with Show) instead of the operations panel.
+  - **A card anywhere else** is an app to install: `openApp` opens the Install view (`install.tsx`
+    `InstallView`): the app's icon and name over **Install**, with "Version x · N MB to download"
+    from `eep_card` (`eep card <file>`: `installed`, `ready`, `download`). Install = `eep_add`
+    (`eep add <card>`, in its own session: the card MOVES into Applications and the app is fetched;
+    `eep-add {window, id, ok, error, card, appId}` when done) → the bar and "Installing… 43% ·
+    114 MB of 264 MB" from the activity → **Open** / Done, or the error and Try again. Hide lets it
+    go on (App.tsx then toasts the end: `watchAdd`); Cancel trashes the card. The same view is the
+    whole of a small window for a card clicked outside Files: eep's handler runs `eep open --ask`,
+    which execs `ewe-files-app --install=<card>` → `install_shape` (lib.rs) opens the window with
+    `window.__eweView = 'install'` set before any script (`open_shaped` in the core;
+    `index.tsx` renders `InstallWindow`), titled `INSTALL_TITLE` — ewe's Hyprland rule
+    `eep-install` matches that title to float it, centred, 400×380 (`INSTALL_SIZE`); change one,
+    change both. It is an ordinary resizable window on purpose: a fixed-size one floats on
+    Hyprland by itself but at the size of the whole screen.
+  - Without eep a card is never handed to the GIO default (that opened a text editor or a
+    folder): Files says "update ewe: it brings eep". An empty Applications says where apps come
+    from (`fm-empty-hint`). The place "Applications" (`$EEP_APPS_DIR` or `~/Applications`,
+    `places::apps_dir`) sits right under Home even before the folder exists; `list_dir` makes it
+    on first open (`ensure_apps_dir`).
+- **The windowed grid has ONE row height** (0.4). `pane.tsx` keeps only the rows near the
+  viewport in the DOM, by arithmetic (`listWindow` in `@ewe/shared`, tested). So every tile is
+  one height — files.css keeps two lines for a name whether it fills them or not — `measure()`
+  reads ONE tile's height and the grid's own column tracks (`getComputedStyle`), and nothing it
+  reads depends on WHICH rows are rendered. 0.3.1 measured the first rendered row and counted
+  the tiles beside it: in a folder with one- and two-line names (Applications) each window
+  measured another height, each height asked for another window, and the page never came back
+  from its microtasks (frozen, 100 % CPU; closing the window left a WebKit watchdog core dump).
+  Never make a tile's height depend on its content, and never measure from "the first rendered
+  row". Repro of the old bug: `--shot=applications --shot-height=656`, eight Down keys.
+- `--shot=list|grid|split|menu|copy|conflict|properties|openwith|archive|trash|quicklook|search|rename|preview|ops-preview|split-list|grid-preview|places|applications|open|install|app-menu|more|tabs|compress`
   puts a fresh window into that state (used for the screenshots; `quicklook` shows the row a
   `--select=` picked); `--shot-width=900` /
   `--shot-height=600` size the app root like a smaller window inside cage's fixed 1280×720

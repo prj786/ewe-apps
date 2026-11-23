@@ -63,6 +63,179 @@ export interface TrashEntry {
   app?: AppCard | undefined
 }
 
+// ---- apps (eep cards, eep/docs/CARD.md) ------------------------------------------
+
+/** What eep says about an app it is installing or updating right now (one entry of
+ *  its activity file, as the core reads it). */
+export interface EepActivity {
+  id: string
+  name: string
+  /** the app's card in Applications (an install from a store has none until done) */
+  card: string | null
+  what: 'install' | 'update'
+  state: 'waiting' | 'downloading' | 'finishing' | 'failed'
+  /** bytes unpacked so far and in all (0 = not known yet) */
+  done: number
+  total: number
+  /** bytes the whole fetch downloads (0 = not known yet) */
+  download: number
+  error: string | null
+}
+
+/** A card before its app is installed (the Rust side's `CardInfo`). */
+export interface CardInfo {
+  path: string
+  mtime: number
+  app: AppCard
+  /** eep's `eep card <file>`; null without eep, or when eep does not take the card */
+  info: {
+    /** the file itself is in Applications */
+    inside: boolean
+    /** the card that holds this app in Applications */
+    installed: string | null
+    ready: boolean
+    /** bytes an install would download now (known when eep's index has the app) */
+    download?: number
+    /** a found app: it is on this computer */
+    present?: boolean
+  } | null
+}
+
+/** `eep add` is done (the `eep-add` event). */
+export interface EepAdded {
+  window: string
+  id: number
+  ok: boolean
+  error: string | null
+  /** the app's card in Applications */
+  card: string | null
+  appId: string | null
+}
+
+/**
+ * How an app's card in Applications stands:
+ * `ready` — click and it starts; `updating` — it starts, a newer version is on its way;
+ * `waiting` — the card arrived and eep has not begun (or is busy with another app);
+ * `installing` / `finishing` — eep is at it; `failed` — eep could not, it tries again.
+ */
+export type AppStanding = 'ready' | 'updating' | 'waiting' | 'installing' | 'finishing' | 'failed'
+
+export function appStanding(
+  app: Pick<AppCard, 'ready'>,
+  activity: EepActivity | undefined,
+): AppStanding {
+  if (app.ready) return activity !== undefined && activity.state !== 'failed' ? 'updating' : 'ready'
+  switch (activity?.state) {
+    case 'failed':
+      return 'failed'
+    case 'finishing':
+      return 'finishing'
+    case 'downloading':
+      return 'installing'
+    default:
+      return 'waiting'
+  }
+}
+
+/** How far a fetch is, 0–1; null while eep does not know the size yet. */
+export function activityFraction(activity: EepActivity | undefined): number | null {
+  if (activity === undefined || activity.total <= 0 || activity.state === 'waiting') return null
+  if (activity.state === 'finishing') return 1
+  return Math.min(1, Math.max(0, activity.done / activity.total))
+}
+
+/** The few words under an app that is not simply ready ("Installing 43%"). */
+export function standingLabel(standing: AppStanding, activity: EepActivity | undefined): string {
+  switch (standing) {
+    case 'ready':
+      return ''
+    case 'updating':
+      return 'Updating…'
+    case 'waiting':
+      return 'Waiting…'
+    case 'finishing':
+      return 'Finishing…'
+    case 'failed':
+      return 'Not installed'
+    case 'installing': {
+      const f = activityFraction(activity)
+      return f === null ? 'Installing…' : `Installing ${Math.floor(f * 100)}%`
+    }
+  }
+}
+
+/** Bytes downloaded so far and in all, from how far the fetch is; null while unknown. */
+export function activityBytes(
+  activity: EepActivity | undefined,
+): { done: number; total: number } | null {
+  const f = activityFraction(activity)
+  if (activity === undefined || f === null || activity.download <= 0) return null
+  return { done: Math.round(activity.download * f), total: activity.download }
+}
+
+/** Where a found app came from, in words ("Arch package"); '' for an eep app. */
+export function appOrigin(app: Pick<AppCard, 'system' | 'from'>): string {
+  if (!app.system) return ''
+  switch (app.from) {
+    case 'pacman':
+      return 'Arch package'
+    case 'appimage':
+      return 'AppImage'
+    case 'steam':
+      return 'Steam'
+    case 'flatpak':
+      return 'Flatpak'
+    case 'local':
+      return 'Your own launcher entry'
+    default:
+      return 'On this computer'
+  }
+}
+
+// ---- windowed lists ---------------------------------------------------------------
+
+/** What a windowed grid or list renders: rows `[start, end)` of the items, with this
+ *  much empty space (px) before and after them. */
+export interface ListWindow {
+  start: number
+  end: number
+  before: number
+  after: number
+}
+
+/**
+ * Which items are in the DOM for a scroll position. Every row is `row` px tall (the
+ * grid's rows are one height by design: a tile's name always keeps two lines), so the
+ * answer depends only on the numbers given — never on which rows happen to be
+ * rendered. `overscan` rows are kept above and below the viewport.
+ */
+export function listWindow(g: {
+  total: number
+  row: number
+  cols: number
+  scrollTop: number
+  viewport: number
+  /** px above the first row that scroll with it (the list's header) */
+  head?: number
+  overscan?: number
+}): ListWindow {
+  const row = Math.max(1, g.row)
+  const cols = Math.max(1, Math.floor(g.cols))
+  const overscan = g.overscan ?? 2
+  const totalRows = Math.ceil(g.total / cols)
+  const firstRow = Math.min(
+    Math.max(0, totalRows - 1),
+    Math.max(0, Math.floor((g.scrollTop - (g.head ?? 0)) / row) - overscan),
+  )
+  const visibleRows = Math.ceil(Math.max(1, g.viewport) / row) + overscan * 2 + 1
+  return {
+    start: Math.min(g.total, firstRow * cols),
+    end: Math.min(g.total, (firstRow + visibleRows) * cols),
+    before: firstRow * row,
+    after: Math.max(0, (totalRows - firstRow - visibleRows) * row),
+  }
+}
+
 export interface Device {
   id: string
   label: string

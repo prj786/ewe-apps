@@ -68,6 +68,8 @@ export interface PlacesProps {
   activePath: string
   dropTarget: string | null
   trashCount: number | null
+  /** apps are installing: what Applications says beside its name ("43%", "…") */
+  installing?: string | null | undefined
   onOpen(place: FsPlace): void
   onOpenPath(path: string, newTab: boolean): void
   onDevice(device: Device, action: 'mount' | 'unmount' | 'eject' | 'open'): void
@@ -154,6 +156,13 @@ export function Places(props: PlacesProps): JSX.Element {
                   </Show>
                   <Show when={place.state === 'setup'}>
                     <span class="fm-place-state">Set up</span>
+                  </Show>
+                  <Show when={place.id === 'applications' ? props.installing : null}>
+                    {(text) => (
+                      <span class="fm-place-state installing" aria-label="Installing apps">
+                        {text()}
+                      </span>
+                    )}
                   </Show>
                   <Show
                     when={

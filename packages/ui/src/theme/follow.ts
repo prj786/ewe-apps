@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { ThemeTokens } from '@ewe/shared'
+import { boot } from '../app/bridge'
 import { applyTheme, type ThemeMode } from './apply'
 import { parseEweTokens } from './parse'
 
@@ -26,7 +27,13 @@ export function followTheme(
   let stopped = false
   let pushed = false
   let unlisten: (() => void) | null = null
+  let last: string | null = null
   const apply = (theme: ThemeTokens | null) => {
+    // the same tokens again change nothing: no reason to re-set every variable on
+    // :root and have the whole page restyled
+    const text = JSON.stringify(theme)
+    if (text === last) return
+    last = text
     applyTheme(theme, mode())
     onTheme?.(theme)
   }
@@ -38,9 +45,15 @@ export function followTheme(
     if (stopped) off()
     else unlisten = off
   })
-  void fetchTheme().then((theme) => {
-    if (!stopped && !pushed) apply(theme)
-  })
+  // The core hands the tokens to the page before its first script: applied here, in
+  // the same task, the first paint already wears the theme. Without them (a dev page
+  // in a browser) the page asks, and paints its fallback colours until the answer.
+  const known = boot().theme
+  if (known !== undefined) apply(parseEweTokens(known))
+  else
+    void fetchTheme().then((theme) => {
+      if (!stopped && !pushed) apply(theme)
+    })
   return () => {
     stopped = true
     unlisten?.()

@@ -271,10 +271,29 @@ impl Job {
     }
 }
 
+/// `a` and `b` are one file (the same inode: the same path, or a hard link).
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)) {
+        (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+        _ => false,
+    }
+}
+
 /// Where a source should land, after asking about clashes. `None` = skip it.
 fn place(job: &Job, src: &Path, dest: &Path) -> Result<Option<PathBuf>, Stop> {
     if !exists(dest) {
         return Ok(Some(dest.to_path_buf()));
+    }
+    // The thing itself is in the way (a copy pasted into its own folder): there is
+    // nothing to ask, and "Replace" would delete the only copy before copying it.
+    // It gets a name of its own, like Keep both.
+    if same_file(src, dest) {
+        let name = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return Ok(Some(unique_path(dest.parent().unwrap_or(dest), &name)));
     }
     match job.ask(src, dest)? {
         Resolution::Skip => Ok(None),
@@ -333,16 +352,25 @@ fn copy_file(job: &Job, src: &Path, dest: &Path, meta: &std::fs::Metadata) -> Re
     let mut input = std::fs::File::open(src)?;
     let mut output = std::fs::File::create(dest)?;
     let mut buf = vec![0u8; CHUNK];
-    loop {
-        job.checkpoint()?;
-        let n = io::Read::read(&mut input, &mut buf)?;
-        if n == 0 {
-            break;
+    let mut pump = || -> Result<(), Stop> {
+        loop {
+            job.checkpoint()?;
+            let n = io::Read::read(&mut input, &mut buf)?;
+            if n == 0 {
+                return Ok(());
+            }
+            io::Write::write_all(&mut output, &buf[..n])?;
+            job.add_bytes(n as u64);
         }
-        io::Write::write_all(&mut output, &buf[..n])?;
-        job.add_bytes(n as u64);
-    }
+    };
+    let copied = pump();
     drop(output);
+    if let Err(stop) = copied {
+        // stopped half way, or the disk filled: half a file under the real name looks
+        // like a finished copy
+        let _ = std::fs::remove_file(dest);
+        return Err(stop);
+    }
     copy_times_and_mode(meta, dest);
     Ok(())
 }
@@ -399,7 +427,27 @@ fn move_one(job: &Job, src: &Path, dest: &Path) -> Result<(), Stop> {
             Err(e) => return Err(e.into()),
         }
     }
-    // another file system, or a folder merge: copy, then remove the source
+    if merging {
+        // Child by child: what the person chose to skip stays where it was. (Copying
+        // the folder and then removing the source deleted the skipped files too.)
+        let mut children: Vec<PathBuf> = std::fs::read_dir(src)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .collect();
+        children.sort();
+        for child in children {
+            let name = child.file_name().unwrap_or_default();
+            let Some(target) = place(job, &child, &dest.join(name))? else {
+                continue;
+            };
+            move_one(job, &child, &target)?;
+        }
+        // gone when everything moved; it stays when something was skipped
+        let _ = std::fs::remove_dir(src);
+        job.item_done();
+        return Ok(());
+    }
+    // another file system: copy, then remove the source
     copy_tree(job, src, dest)?;
     trash::remove_any(src)?;
     Ok(())
@@ -476,7 +524,7 @@ fn run_job(job: &Job, req: &OpRequest) -> Result<Vec<UndoAction>, Stop> {
                 let name = src
                     .file_name()
                     .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Cannot copy /"))?;
-                if is_inside(&dest_dir, src) && (req.kind == OpKind::Move || dest_dir != *src) {
+                if is_inside(&dest_dir, src) {
                     return Err(io::Error::other(format!(
                         "Cannot put “{}” inside itself",
                         name.to_string_lossy()
@@ -619,20 +667,28 @@ impl Ops {
             .name(format!("ewe-files-op-{id}"))
             .spawn(move || {
                 let outcome = run_job(&job, &req);
+                // The undo record goes in BEFORE the job's progress is locked: `list()`
+                // takes the two locks the other way round (the state, then each job),
+                // and a job that finished while the page asked for the list left both
+                // threads waiting for each other — every window frozen.
+                let undoable = matches!(&outcome, Ok(undo) if !undo.is_empty());
+                if let Ok(undo) = &outcome
+                    && undoable
+                {
+                    let label = job.progress.lock().unwrap().label.clone();
+                    ops.state.lock().unwrap().undo.push(UndoRecord {
+                        label,
+                        actions: undo.clone(),
+                    });
+                }
                 let mut p = job.progress.lock().unwrap();
                 match outcome {
-                    Ok(undo) => {
+                    Ok(_) => {
                         p.state = "done";
                         p.done_bytes = p.done_bytes.max(p.total_bytes);
                         p.eta = Some(0);
                         p.current = String::new();
-                        if !undo.is_empty() {
-                            p.undoable = true;
-                            ops.state.lock().unwrap().undo.push(UndoRecord {
-                                label: p.label.clone(),
-                                actions: undo,
-                            });
-                        }
+                        p.undoable = undoable;
                     }
                     Err(Stop::Cancelled) => p.state = "cancelled",
                     Err(Stop::Io(e)) => {
@@ -686,35 +742,27 @@ impl Ops {
         .is_some()
     }
 
+    // A job's progress is never locked while the state is: see the job thread.
+    fn job(&self, id: u64) -> Option<Arc<Job>> {
+        self.state.lock().unwrap().jobs.get(&id).cloned()
+    }
+
     pub fn progress(&self, id: u64) -> Option<Progress> {
-        self.state
-            .lock()
-            .unwrap()
-            .jobs
-            .get(&id)
-            .map(|j| j.snapshot())
+        self.job(id).map(|j| j.snapshot())
     }
 
     pub fn list(&self) -> Vec<Progress> {
-        let mut out: Vec<Progress> = self
-            .state
-            .lock()
-            .unwrap()
-            .jobs
-            .values()
-            .map(|j| j.snapshot())
-            .collect();
+        let jobs: Vec<Arc<Job>> = self.state.lock().unwrap().jobs.values().cloned().collect();
+        let mut out: Vec<Progress> = jobs.iter().map(|j| j.snapshot()).collect();
         out.sort_by_key(|p| p.id);
         out
     }
 
     /// Forget a finished job.
     pub fn dismiss(&self, id: u64) {
-        let mut st = self.state.lock().unwrap();
-        if let Some(j) = st.jobs.get(&id)
-            && matches!(j.snapshot().state, "done" | "failed" | "cancelled")
-        {
-            st.jobs.remove(&id);
+        let Some(job) = self.job(id) else { return };
+        if matches!(job.snapshot().state, "done" | "failed" | "cancelled") {
+            self.state.lock().unwrap().jobs.remove(&id);
         }
     }
 
@@ -863,6 +911,130 @@ mod tests {
         std::fs::write(src.join("deep/er/c.txt"), "c").unwrap();
         std::os::unix::fs::symlink("a.txt", src.join("link")).unwrap();
         src
+    }
+
+    #[test]
+    fn a_copy_pasted_into_its_own_folder_is_a_second_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        std::fs::write(&a, "the only copy").unwrap();
+        let o = ops();
+        // no question is asked (Replace used to delete `a.txt` and then fail to copy it)
+        let id = o.start(req(
+            OpKind::Copy,
+            vec![a.clone()],
+            Some(dir.path().to_path_buf()),
+            dir.path(),
+        ));
+        let p = done(&o, id);
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "the only copy");
+        let copy = dir.path().join("a (1).txt");
+        assert_eq!(p.results, vec![copy.to_string_lossy()]);
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "the only copy");
+    }
+
+    #[test]
+    fn a_folder_is_not_copied_into_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = tree(dir.path());
+        let o = ops();
+        let id = o.start(req(
+            OpKind::Copy,
+            vec![src.clone()],
+            Some(src.clone()),
+            dir.path(),
+        ));
+        let p = wait_for(&o, id, &["done", "failed", "cancelled"]);
+        assert_eq!(p.state, "failed");
+        assert!(p.error.unwrap().contains("inside itself"));
+        assert!(!src.join("src").exists());
+    }
+
+    #[test]
+    fn a_merge_keeps_what_was_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from/Photos");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(to.join("Photos")).unwrap();
+        std::fs::write(from.join("a.jpg"), "mine").unwrap();
+        std::fs::write(from.join("b.jpg"), "new").unwrap();
+        std::fs::write(to.join("Photos/a.jpg"), "theirs").unwrap();
+        let o = ops();
+        let id = o.start(req(
+            OpKind::Move,
+            vec![from.clone()],
+            Some(to.clone()),
+            dir.path(),
+        ));
+        // the folders: merge
+        let c = wait_conflict(&o, id, "");
+        assert!(c.dir);
+        o.resolve(id, Resolution::Replace, false);
+        // a.jpg: skip it
+        let c = wait_conflict(&o, id, &c.dest);
+        assert!(c.dest.ends_with("a.jpg"));
+        o.resolve(id, Resolution::Skip, false);
+        done(&o, id);
+        assert_eq!(
+            std::fs::read_to_string(to.join("Photos/a.jpg")).unwrap(),
+            "theirs"
+        );
+        assert_eq!(
+            std::fs::read_to_string(to.join("Photos/b.jpg")).unwrap(),
+            "new"
+        );
+        // the file the person chose to leave is still where it was
+        assert_eq!(std::fs::read_to_string(from.join("a.jpg")).unwrap(), "mine");
+        assert!(!from.join("b.jpg").exists());
+    }
+
+    #[test]
+    fn a_stopped_copy_leaves_no_half_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.bin");
+        std::fs::write(&big, vec![7u8; 6 * CHUNK]).unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir(&dest).unwrap();
+        let o = ops();
+        let id = o.start(req(
+            OpKind::Copy,
+            vec![big.clone()],
+            Some(dest.clone()),
+            dir.path(),
+        ));
+        o.cancel(id);
+        let p = wait_for(&o, id, &["done", "failed", "cancelled"]);
+        if p.state == "cancelled" {
+            assert!(!dest.join("big.bin").exists(), "half a file was left");
+        } else {
+            // the copy won the race with the stop: then it is whole
+            assert_eq!(
+                std::fs::metadata(dest.join("big.bin")).unwrap().len(),
+                (6 * CHUNK) as u64
+            );
+        }
+    }
+
+    #[test]
+    fn listing_while_jobs_finish_never_locks_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let o = ops();
+        let lister = {
+            let o = o.clone();
+            std::thread::spawn(move || {
+                for _ in 0..4000 {
+                    let _ = o.list();
+                }
+            })
+        };
+        for i in 0..150 {
+            let f = dir.path().join(format!("f{i}.txt"));
+            std::fs::write(&f, "x").unwrap();
+            let id = o.start(req(OpKind::Trash, vec![f], None, dir.path()));
+            done(&o, id);
+        }
+        lister.join().unwrap();
     }
 
     #[test]

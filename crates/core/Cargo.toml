@@ -19,6 +19,8 @@ serde_json = { workspace = true }
 # content types, default apps and launching
 glib = "0.18"
 gio = "0.18"
+# the icon theme, for the file of an app's icon (Open with); already in the tree
+gtk = "0.18"
 notify = "7"
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "net"] }
 tokio-util = { version = "0.7", features = ["io"] }

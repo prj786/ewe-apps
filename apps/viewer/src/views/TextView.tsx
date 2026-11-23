@@ -196,6 +196,15 @@ export function resolvePath(dir: string, relative: string): string {
   return parts.join('/') || '/'
 }
 
+/** The id GitHub gives a heading: lower case, spaces to dashes, punctuation dropped. */
+export function headingSlug(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/\s+/g, '-')
+}
+
 export function TextView(props: ViewProps): JSX.Element {
   const name = () => baseName(props.path)
   const isMarkdown = () => docKind(props.path) === 'markdown'
@@ -326,6 +335,13 @@ export function TextView(props: ViewProps): JSX.Element {
         node.setAttribute('rel', 'noopener')
         return
       }
+      // headings get the id their links point at (`[Install](#install)`): marked
+      // writes none, and a README's table of contents did nothing
+      if (/^H[1-6]$/.test(node.tagName) && !node.hasAttribute('id')) {
+        const slug = headingSlug(node.textContent ?? '')
+        if (slug !== '') node.setAttribute('id', slug)
+        return
+      }
       if (node.tagName !== 'IMG') return
       const src = node.getAttribute('src') ?? ''
       if (src !== '' && !/^[a-z]+:/i.test(src)) {
@@ -357,7 +373,14 @@ export function TextView(props: ViewProps): JSX.Element {
         scroller?.querySelector(`[name="${CSS.escape(id)}"]`)
       target?.scrollIntoView({ block: 'start' })
     } else if (href !== '' && !/^[a-z]+:/i.test(href)) {
-      props.onOpen(resolvePath(dirName(props.path), href.split('#')[0] ?? href))
+      // marked percent-encodes what it writes: `My Notes.md` arrives as My%20Notes.md
+      let file = href.split('#')[0] ?? href
+      try {
+        file = decodeURIComponent(file)
+      } catch {
+        // not an encoded name: as it is
+      }
+      props.onOpen(resolvePath(dirName(props.path), file))
     }
   }
 

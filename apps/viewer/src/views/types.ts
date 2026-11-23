@@ -9,6 +9,9 @@ export interface ViewProps {
   onOpen(path: string): void
   /** the view learned a better title (a PDF's Title, a book's) */
   onTitle?: ((title: string) => void) | undefined
+  /** the view now shows another file than the tab was opened with (the picture
+   *  view stepping through the folder): menus and "open again" follow it */
+  onPath?: ((path: string) => void) | undefined
   /** the view wants its tab closed (file gone, moved to Trash) */
   onClose?: (() => void) | undefined
   /** the `--key=value` flags of the command line that opened this file (lib/flags.ts) */

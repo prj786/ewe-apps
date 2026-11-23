@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { boot } from '@ewe/ui'
 import type {
   AppEntry,
   AppInfo,
@@ -33,7 +34,14 @@ import type {
 export const windowLabel = (): string => getCurrentWebviewWindow().label
 
 export const api = {
-  windowLaunch: () => invoke<Launch>('window_launch'),
+  /** what this window was asked to open: on the window already (the core's boot
+   *  script), else asked for */
+  windowLaunch: (): Promise<Launch> => {
+    const known = boot().launch
+    return known === undefined || known === null
+      ? invoke<Launch>('window_launch')
+      : Promise.resolve(known)
+  },
   newWindow: (paths: string[], flags: string[] = []) =>
     invoke<string>('new_window', { paths, flags }),
   windowClosed: () => invoke<null>('window_closed'),

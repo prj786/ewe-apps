@@ -517,8 +517,13 @@
   color: var(--text-secondary);
 }
 
+/* the parts of a body stand one under the other with the same air between them
+   (they touched: a field glued to its list, switches glued to each other) */
 .dialog-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--space-s);
   min-height: 0;
   overflow: auto;
 }
@@ -527,6 +532,126 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-s);
+}
+
+/* an action that stands apart on the left ("Find an app in Komble…") */
+.dialog-actions-start {
+  margin-right: auto;
+}
+
+/* ── Open with (design system: File picker → Open with) ──────────────────── */
+.openwith {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  min-width: 0;
+  min-height: 0;
+}
+
+.openwith-find {
+  width: 100%;
+}
+
+/* six rows show, then the list scrolls */
+.applist {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: var(--space-xxs);
+  max-height: calc(6 * var(--control-2xl) + 5 * var(--space-xxs));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.approw {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: calc(var(--space-s) + var(--space-xs));
+  width: 100%;
+  height: var(--control-2xl);
+  padding: 0 var(--space-s);
+  border-radius: var(--secondary);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.approw:hover {
+  background: var(--surface-hover);
+}
+
+.approw.selected {
+  background: var(--accent-subtle);
+}
+
+.approw:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-width));
+}
+
+.approw-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--icon-xl);
+  height: var(--icon-xl);
+  color: var(--text-secondary);
+}
+
+.approw-icon > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.approw-icon > .icon {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+}
+
+.approw-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approw.selected .approw-name {
+  font-weight: var(--font-weight-medium);
+}
+
+.approw-note {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+}
+
+.approw-check {
+  flex: none;
+  width: var(--icon-md);
+  height: var(--icon-md);
+  color: var(--accent-text);
+  visibility: hidden;
+}
+
+.approw.selected .approw-check {
+  visibility: visible;
+}
+
+.approw--more {
+  color: var(--text-secondary);
+}
+
+.openwith-always {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  min-height: var(--control-md);
+  padding: 0 var(--space-s);
+  color: var(--text-secondary);
 }
 
 .toasts {

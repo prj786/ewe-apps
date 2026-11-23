@@ -95,7 +95,20 @@ const GENERIC_FONTS = new Set([
   'fantasy',
 ])
 
-/** A font stack with SCRIPT_FONTS put before its first generic family (none twice). */
+/**
+ * The face tried right after the first one, before the script faces: Noto Sans (or its
+ * Mono) has Latin, Greek, Cyrillic and the spaces and punctuation Geist lacks — the
+ * narrow no-break space ICU puts in "5:45 PM", for one. WebKit looks for a missing
+ * character family by family and opens each font file on the way, so without this
+ * every list of dates opened all eighteen script faces before `system-ui` gave it
+ * Noto Sans anyway (strace, 2026-11-23: 190 font files opened while a window started).
+ */
+export const LATIN_FALLBACK = { sans: 'Noto Sans', mono: 'Noto Sans Mono' } as const
+
+/**
+ * A font stack with LATIN_FALLBACK after its first family and SCRIPT_FONTS before its
+ * first generic family (none twice).
+ */
 export function withScriptFonts(stack: string): string {
   const families = stack
     .split(',')
@@ -103,10 +116,21 @@ export function withScriptFonts(stack: string): string {
     .filter((f) => f !== '')
   const plain = (f: string) => f.replace(/^["']|["']$/g, '').toLowerCase()
   const have = new Set(families.map(plain))
+  const mono = families.some((f) => /mono/i.test(f))
+  const latin = mono ? LATIN_FALLBACK.mono : LATIN_FALLBACK.sans
+  const lead = have.has(latin.toLowerCase()) || families.length === 0 ? [] : [`"${latin}"`]
   const extra = SCRIPT_FONTS.filter((f) => !have.has(f.toLowerCase())).map((f) => `"${f}"`)
-  const at = families.findIndex((f) => GENERIC_FONTS.has(plain(f)))
-  const cut = at === -1 ? families.length : at
-  return [...families.slice(0, cut), ...extra, ...families.slice(cut)].join(', ')
+  const first = families.length > 0 && !GENERIC_FONTS.has(plain(families[0] ?? '')) ? 1 : 0
+  const rest = families.slice(first)
+  const at = rest.findIndex((f) => GENERIC_FONTS.has(plain(f)))
+  const cut = at === -1 ? rest.length : at
+  return [
+    ...families.slice(0, first),
+    ...lead,
+    ...rest.slice(0, cut),
+    ...extra,
+    ...rest.slice(cut),
+  ].join(', ')
 }
 
 function num(value: unknown): number | null {

@@ -37,6 +37,7 @@ pub mod server;
 pub mod text;
 pub mod theme;
 pub mod thumbs;
+pub mod trace;
 pub mod xdg;
 
 pub use app::{
@@ -45,7 +46,7 @@ pub use app::{
 };
 pub use commands::{
     add_recent, app_version, apps_for, default_app, launch_args, launch_with, media_server,
-    mime_of, set_default_app, theme_tokens,
+    mime_of, set_default_app, theme_tokens, trace_mark,
 };
 
 /// `tauri::generate_handler!` with every core command first, then the app's own:
@@ -67,6 +68,7 @@ macro_rules! handler {
             $crate::default_app,
             $crate::set_default_app,
             $crate::launch_with,
+            $crate::trace_mark,
             $($extra),*
         ]
     };

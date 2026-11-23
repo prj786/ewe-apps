@@ -11,6 +11,8 @@ use notify::{RecursiveMode, Watcher};
 use crate::ops::Emit;
 
 const DEBOUNCE: Duration = Duration::from_millis(200);
+/// The longest a folder that keeps changing goes without saying so.
+const MAX_WAIT: Duration = Duration::from_millis(1000);
 
 struct Watch {
     path: PathBuf,
@@ -57,11 +59,17 @@ impl Watches {
             let key = key_owned.clone();
             let path = emit_path.clone();
             std::thread::spawn(move || {
+                // Quiet for DEBOUNCE, or MAX_WAIT since the burst began: a download
+                // being written is one long burst, and the folder said nothing until
+                // it ended — a file another app saved there meanwhile did not appear.
+                let began = Instant::now();
                 loop {
                     std::thread::sleep(DEBOUNCE);
                     let mut p = pending.lock().unwrap();
                     match *p {
-                        Some(last) if last.elapsed() < DEBOUNCE => continue,
+                        Some(last) if last.elapsed() < DEBOUNCE && began.elapsed() < MAX_WAIT => {
+                            continue;
+                        }
                         _ => {
                             *p = None;
                             break;

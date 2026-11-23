@@ -31,6 +31,7 @@ import {
   type ArchiveListing,
   type BatchRename,
   type CompressFormat,
+  type MediaServer,
   type MountAsk,
   type MountQuestion,
   type OpProgress,
@@ -38,7 +39,7 @@ import {
   type Resolution,
   type SizeProgress,
 } from '@ewe/shared'
-import { Button, Dialog, Field, Icon, Segmented, Switch, toast } from '@ewe/ui'
+import { AppRows, Button, Dialog, Field, Icon, OpenWith, Segmented, Switch, toast } from '@ewe/ui'
 import { api, errorText, on as onEvent } from './api'
 
 const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -155,6 +156,8 @@ function PermissionRow(props: {
 export function PropertiesDialog(props: {
   paths: string[]
   mediaThumb: (path: string) => string
+  /** for the apps' own icons */
+  server: MediaServer | null
   onClose(): void
 }): JSX.Element {
   const first = () => props.paths[0] ?? ''
@@ -342,11 +345,18 @@ export function PropertiesDialog(props: {
                   Files of this type ({mime()?.description ?? ''}) open with
                   {defaultApp() === null ? ' no app yet' : ` ${defaultApp()?.name ?? ''}`}.
                 </p>
-                <AppList
-                  apps={apps() ?? []}
-                  selected={chosenApp() ?? defaultApp()?.id ?? null}
-                  onSelect={setChosenApp}
-                />
+                <Show
+                  when={(apps() ?? []).length > 0}
+                  fallback={<p class="muted">No app says it opens this type.</p>}
+                >
+                  <AppRows
+                    apps={apps() ?? []}
+                    selected={chosenApp() ?? defaultApp()?.id ?? null}
+                    server={props.server}
+                    label="Apps that open this type"
+                    onSelect={setChosenApp}
+                  />
+                </Show>
                 <Button
                   disabled={chosenApp() === null || chosenApp() === defaultApp()?.id}
                   onClick={() => {
@@ -377,113 +387,51 @@ export function PropertiesDialog(props: {
   )
 }
 
-function AppList(props: {
-  apps: AppInfo[]
-  selected: string | null
-  onSelect(id: string): void
-}): JSX.Element {
-  return (
-    <div class="applist" role="listbox">
-      <For each={props.apps}>
-        {(app) => (
-          <button
-            class="applist-row"
-            role="option"
-            classList={{ selected: props.selected === app.id }}
-            aria-selected={props.selected === app.id}
-            onClick={() => props.onSelect(app.id)}
-            onDblClick={() => props.onSelect(app.id)}
-          >
-            <Icon name="app-window" size={16} />
-            <span class="applist-name">{app.name}</span>
-            <Show when={app.default}>
-              <span class="applist-badge">Default</span>
-            </Show>
-          </button>
-        )}
-      </For>
-      <Show when={props.apps.length === 0}>
-        <p class="muted">No app says it opens this type.</p>
-      </Show>
-    </div>
-  )
-}
-
 // ---- open with ------------------------------------------------------------------
 
-export function OpenWithDialog(props: { paths: string[]; onClose(): void }): JSX.Element {
+/** "Open with" for the selection: the kit's card (the design system's Open with). */
+export function OpenWithDialog(props: {
+  paths: string[]
+  server: MediaServer | null
+  /** Komble is installed: "Find an app in Komble…" */
+  onFindApp?: (() => void) | undefined
+  onClose(): void
+}): JSX.Element {
   const first = () => props.paths[0] ?? ''
   const [mime] = createResource(first, (p) => api.mimeOf(p))
   const [all, setAll] = createSignal(false)
-  const [always, setAlways] = createSignal(false)
-  const [filter, setFilter] = createSignal('')
-  const [chosen, setChosen] = createSignal<string | null>(null)
   const [apps] = createResource(
-    () => (mime() === undefined ? null : { type: mime()?.type ?? '', all: all() }),
-    (q) => api.appsFor(q.type, q.all),
+    () => mime()?.type,
+    (type) => api.appsFor(type, false),
   )
-  const shown = createMemo(() => {
-    const q = filter().trim().toLowerCase()
-    const list = apps() ?? []
-    return q === '' ? list : list.filter((a) => a.name.toLowerCase().includes(q))
-  })
-  const open = () => {
-    const id = chosen() ?? shown()[0]?.id
-    const t = mime()?.type
-    if (id === undefined) return
-    const after = always() && t !== undefined ? api.setDefaultApp(id, t) : Promise.resolve()
-    void after
-      .then(() => api.launchWith(id, props.paths))
+  const [everyApp] = createResource(
+    () => (all() ? (mime()?.type ?? '') : null),
+    (type) => api.appsFor(type, true),
+  )
+  const open = (app: AppInfo, always: boolean) => {
+    const type = mime()?.type
+    const before =
+      always && type !== undefined ? api.setDefaultApp(app.id, type) : Promise.resolve()
+    void before
+      .then(() => api.launchWith(app.id, props.paths))
       .then(
         () => props.onClose(),
         (e: unknown) => toast(errorText(e), { kind: 'danger' }),
       )
   }
   return (
-    <Dialog
+    <OpenWith
       open
-      title={
-        props.paths.length === 1
-          ? `Open “${baseName(first())}” with`
-          : `Open ${props.paths.length} files with`
-      }
-      description={mime()?.description}
+      subject={props.paths.length === 1 ? baseName(first()) : `${props.paths.length} files`}
+      typeLabel={mime()?.description}
+      apps={apps()}
+      allApps={everyApp()}
+      server={props.server}
+      onShowAll={() => setAll(true)}
+      onFindApp={props.onFindApp}
+      onOpen={open}
       onClose={() => props.onClose()}
-      actions={
-        <>
-          <Button kind="ghost" onClick={() => props.onClose()}>
-            Cancel
-          </Button>
-          <Button kind="primary" disabled={shown().length === 0} onClick={open}>
-            Open
-          </Button>
-        </>
-      }
-    >
-      <Field
-        value={filter()}
-        label="Find an app"
-        placeholder="Find an app"
-        icon="search"
-        clearable
-        autofocus
-        onInput={setFilter}
-        onSubmit={open}
-      />
-      <AppList
-        apps={shown()}
-        selected={chosen() ?? shown()[0]?.id ?? null}
-        onSelect={(id) => setChosen(id)}
-      />
-      <label class="row-switch">
-        <Switch checked={all()} label="Show every app" onChange={setAll} />
-        <span>Show every app</span>
-      </label>
-      <label class="row-switch">
-        <Switch checked={always()} label="Always use for this type" onChange={setAlways} />
-        <span>Always open {mime()?.description ?? 'this type'} with it</span>
-      </label>
-    </Dialog>
+    />
   )
 }
 

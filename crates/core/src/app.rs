@@ -82,6 +82,7 @@ pub fn run_with<F>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: 
 where
     F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
 {
+    crate::trace::mark("main");
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let launch = Launch::parse(std::env::args().skip(1), &cwd);
     if launch.wants_version() {
@@ -127,6 +128,7 @@ where
         .manage(spec);
     configure(builder)
         .setup(move |app| {
+            crate::trace::mark("setup");
             let thumbs = crate::thumbs::Thumbs::new(crate::thumbs::Thumbs::default_root());
             let server = crate::server::start(thumbs)?;
             // for tests and tools (scripts/shot.sh): where the server is, as JSON, 0600
@@ -148,13 +150,16 @@ where
                 app.manage(watch);
             }
 
+            crate::trace::mark("services");
+            let process: tauri::State<Launch> = app.state();
             match &first_shape {
-                Some(shape) => open_shaped(app.handle(), "main", shape)?,
-                None => open_window(app.handle(), &window_spec, "main")?,
+                Some(shape) => open_shaped(app.handle(), "main", shape, Some(process.inner()))?,
+                None => open_window(app.handle(), &window_spec, "main", Some(process.inner()))?,
             };
             if let Some(setup) = setup {
                 setup(app.handle())?;
             }
+            crate::trace::mark("setup-done");
             Ok(())
         })
         .invoke_handler(handler)
@@ -162,15 +167,113 @@ where
         .expect("error while running the app");
 }
 
+/// What a window knows before its first script runs, as `window.__ewe`: the theme
+/// tokens, the media server, the app's identity and — when the caller has it — what
+/// this window was asked to open. The page used to ask for each over IPC, and the
+/// first answers took ~45 ms to come back (measured 2026-11-23): the first folder or
+/// picture waited behind them, and the first paint had the fallback colours.
+fn boot_script(
+    app: &AppHandle,
+    theme: &Option<serde_json::Value>,
+    launch: Option<&Launch>,
+) -> String {
+    let server = app.try_state::<crate::server::MediaServerInfo>();
+    let identity = app.try_state::<AppIdentity>();
+    // which of the launch's paths are folders: ewe Files opens a folder as a tab and
+    // a file as its folder with the file selected, and no longer has to ask first
+    let dirs: Option<Vec<bool>> = launch.map(|l| {
+        l.paths
+            .iter()
+            .map(|p| std::path::Path::new(p).is_dir())
+            .collect()
+    });
+    let boot = serde_json::json!({
+        "theme": theme,
+        "server": server.as_deref(),
+        "app": identity.as_deref(),
+        "launch": launch,
+        "dirs": dirs,
+    });
+    format!("window.__ewe = {boot};")
+}
+
+/// `#rrggbb` (or `#aarrggbb`) → an opaque colour.
+fn parse_colour(text: &str) -> Option<tauri::window::Color> {
+    let hex = text.strip_prefix('#')?;
+    let hex = match hex.len() {
+        6 => hex,
+        8 => &hex[2..],
+        _ => return None,
+    };
+    let n = u32::from_str_radix(hex, 16).ok()?;
+    Some(tauri::window::Color(
+        (n >> 16) as u8,
+        (n >> 8) as u8,
+        n as u8,
+        255,
+    ))
+}
+
+/// The start every window shares: undecorated, the theme's variant and page colour
+/// from the first frame, the boot script — and built HIDDEN, then shown.
+///
+/// Hidden first is for speed, not looks. tao shows a window before it turns the
+/// decorations off; on Wayland GTK then builds its own title bar for that moment and
+/// loads three symbolic icons for it, and since gdk-pixbuf 2.44 an icon is decoded in
+/// a sandboxed glycin loader that has to be spawned: 125 ms of every launch, for a
+/// title bar nobody sees (strace, 2026-11-23). A window that is not visible yet gets
+/// no title bar; `finish` shows it once tao has set it up.
+fn window_builder<'a>(
+    app: &'a AppHandle,
+    label: &str,
+    launch: Option<&Launch>,
+) -> WebviewWindowBuilder<'a, tauri::Wry, AppHandle> {
+    let theme = crate::theme::read(&crate::theme::tokens_path());
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+        .decorations(false)
+        .visible(false)
+        .initialization_script(boot_script(app, &theme, launch));
+    if let Some(tokens) = &theme {
+        // without it tao asks the portal for the colour scheme (a D-Bus round trip)
+        match tokens.pointer("/input/variant").and_then(|v| v.as_str()) {
+            Some("light") => builder = builder.theme(Some(tauri::Theme::Light)),
+            Some(_) => builder = builder.theme(Some(tauri::Theme::Dark)),
+            None => {}
+        }
+        if let Some(colour) = tokens
+            .pointer("/color/surface-base")
+            .and_then(|v| v.as_str())
+            .and_then(parse_colour)
+        {
+            builder = builder.background_color(colour);
+        }
+    }
+    builder
+}
+
+fn finish(win: WebviewWindow) -> tauri::Result<WebviewWindow> {
+    win.show()?;
+    crate::trace::mark("window");
+    Ok(win)
+}
+
 /// Open another window of the app (`index.html`, undecorated, the spec's sizes).
 /// The capability file must list the label (`main`, or a pattern such as `win-*`).
-pub fn open_window(app: &AppHandle, spec: &AppSpec, label: &str) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title(spec.name)
-        .inner_size(spec.width, spec.height)
-        .min_inner_size(spec.min_width, spec.min_height)
-        .decorations(false)
-        .build()
+/// `launch` is what this window was asked to open, when the caller knows it: the
+/// page then has it before its first script (`getLaunch()`), else it asks.
+pub fn open_window(
+    app: &AppHandle,
+    spec: &AppSpec,
+    label: &str,
+    launch: Option<&Launch>,
+) -> tauri::Result<WebviewWindow> {
+    finish(
+        window_builder(app, label, launch)
+            .title(spec.name)
+            .inner_size(spec.width, spec.height)
+            .min_inner_size(spec.min_width, spec.min_height)
+            .build()?,
+    )
 }
 
 /// Open a window of another shape than the app's usual one (see [`WindowShape`]).
@@ -179,12 +282,12 @@ pub fn open_shaped(
     app: &AppHandle,
     label: &str,
     shape: &WindowShape,
+    launch: Option<&Launch>,
 ) -> tauri::Result<WebviewWindow> {
-    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+    let mut builder = window_builder(app, label, launch)
         .title(&shape.title)
         .inner_size(shape.width, shape.height)
-        .resizable(shape.resizable)
-        .decorations(false);
+        .resizable(shape.resizable);
     if !shape.resizable {
         builder = builder
             .min_inner_size(shape.width, shape.height)
@@ -193,7 +296,7 @@ pub fn open_shaped(
     if let Some(script) = &shape.script {
         builder = builder.initialization_script(script);
     }
-    builder.build()
+    finish(builder.build()?)
 }
 
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {

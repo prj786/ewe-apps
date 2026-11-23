@@ -13,7 +13,7 @@ import { Button, EmptyState, Icon, IconButton } from '@ewe/ui'
 import { api } from './api'
 import { fmtDate } from './dialogs'
 import { KIND_ICON, KIND_LABEL, type Row } from './pane'
-import { pdfThumb } from './pdfview'
+import { pdfThumb } from './pdfthumb'
 
 export function Preview(props: {
   row: Row | null

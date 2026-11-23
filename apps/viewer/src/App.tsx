@@ -13,12 +13,13 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
-import type { AppInfo, Launch, MediaServer, MimeInfo } from '@ewe/shared'
+import { comboKey, type AppInfo, type Launch, type MediaServer, type MimeInfo } from '@ewe/shared'
 import {
   Dialog,
   Icon,
   IconButton,
   Menu,
+  OpenWith,
   Tabs,
   Toasts,
   Toolbar,
@@ -59,6 +60,10 @@ export function App(): JSX.Element {
   const [server, setServer] = createSignal<MediaServer | null>(null)
   const [tabs, setTabs] = createSignal<DocTab[]>([])
   const [titles, setTitles] = createSignal<Record<string, string>>({})
+  // the file a tab shows NOW: the picture view steps through its folder, and the
+  // menus, "Show in folder" and "open it again" must mean that picture
+  const [paths, setPaths] = createSignal<Record<string, string>>({})
+  const pathOf = (tab: DocTab): string => paths()[tab.id] ?? tab.path
   const [selected, setSelected] = createSignal<string | null>(null)
   const [menuAt, setMenuAt] = createSignal<{ x: number; y: number } | null>(null)
   const [tabMenu, setTabMenu] = createSignal<{ id: string; at: { x: number; y: number } } | null>(
@@ -67,31 +72,42 @@ export function App(): JSX.Element {
   const [about, setAbout] = createSignal<string | null>(null)
   const [dropping, setDropping] = createSignal(false)
   const [startRefresh, setStartRefresh] = createSignal(0)
-  const [openWith, setOpenWith] = createSignal<{ path: string; apps: AppInfo[] } | null>(null)
+  const [openWith, setOpenWith] = createSignal<{
+    path: string
+    type: MimeInfo | null
+    apps: AppInfo[]
+    all?: AppInfo[]
+  } | null>(null)
 
   const current = () => tabs().find((t) => t.id === selected()) ?? null
 
-  const openPaths = async (paths: string[], opts: { select?: boolean; flags?: string[] } = {}) => {
+  const openPaths = (paths: string[], opts: { select?: boolean; flags?: string[] } = {}) => {
     const fresh: DocTab[] = []
     let firstExisting: string | null = null
     for (const path of paths) {
-      const existing = tabs().find((t) => t.path === path)
+      const existing = tabs().find((t) => pathOf(t) === path)
       if (existing !== undefined) {
         firstExisting ??= existing.id
         continue
       }
-      const stat = await fileStat(path).catch(() => null)
-      if (!stat?.exists) {
-        toast(`${baseName(path)} is not there`, { kind: 'warning' })
-        continue
-      }
-      fresh.push({
+      const tab: DocTab = {
         id: `t${nextTab++}`,
         path,
         kind: docKind(path),
         title: baseName(path),
         flags: opts.flags ?? [],
-      })
+      }
+      fresh.push(tab)
+      // The tab opens at once and the file is checked behind it: waiting for the
+      // answer first kept every picture and document ~50 ms from the screen, for
+      // the rare path that is not there (a recent file that was since deleted).
+      void fileStat(path)
+        .catch(() => null)
+        .then((stat) => {
+          if (stat?.exists === true) return
+          toast(`${baseName(path)} is not there`, { kind: 'warning' })
+          closeTab(tab.id)
+        })
     }
     batch(() => {
       if (fresh.length > 0) setTabs((list) => [...list, ...fresh])
@@ -121,6 +137,7 @@ export function App(): JSX.Element {
   const closeOthers = (id: string) => {
     setTabs((list) => list.filter((t) => t.id === id))
     setSelected(id)
+    void getCurrentWindow().setTitle(titleFor(current()))
   }
 
   const select = (id: string) => {
@@ -143,30 +160,39 @@ export function App(): JSX.Element {
       directory: false,
       title: 'Open',
       filters: OPEN_FILTERS,
-      ...(cur === null ? {} : { defaultPath: cur.path.slice(0, cur.path.lastIndexOf('/')) }),
+      ...(cur === null ? {} : { defaultPath: pathOf(cur).slice(0, pathOf(cur).lastIndexOf('/')) }),
     })
     if (picked === null) return
-    await openPaths(Array.isArray(picked) ? picked : [picked])
+    openPaths(Array.isArray(picked) ? picked : [picked])
   }
 
   const showOpenWith = async () => {
     const tab = current()
     if (tab === null) return
-    const mime = await invoke<MimeInfo>('mime_of', { path: tab.path }).catch(() => null)
+    const path = pathOf(tab)
+    const mime = await invoke<MimeInfo>('mime_of', { path }).catch(() => null)
     const apps =
       mime === null
         ? []
         : await invoke<AppInfo[]>('apps_for', { contentType: mime.type, all: false }).catch(
             (): AppInfo[] => [],
           )
-    setOpenWith({ path: tab.path, apps })
+    setOpenWith({ path, type: mime, apps })
   }
 
-  const launchWith = async (app: AppInfo | null) => {
+  const showAllApps = () => {
+    void invoke<AppInfo[]>('apps_for', { contentType: '', all: true })
+      .catch((): AppInfo[] => [])
+      .then((all) => setOpenWith((o) => (o === null ? null : { ...o, all })))
+  }
+
+  const launchWith = async (app: AppInfo, always: boolean) => {
     const target = openWith()
     if (target === null) return
     try {
-      await invoke<null>('launch_with', { desktopId: app?.id ?? null, paths: [target.path] })
+      if (always && target.type !== null)
+        await invoke<null>('set_default_app', { desktopId: app.id, contentType: target.type.type })
+      await invoke<null>('launch_with', { desktopId: app.id, paths: [target.path] })
       setOpenWith(null)
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), { kind: 'danger' })
@@ -176,7 +202,8 @@ export function App(): JSX.Element {
   const showInFiles = async () => {
     const tab = current()
     if (tab === null) return
-    const dir = tab.path.slice(0, tab.path.lastIndexOf('/')) || '/'
+    const path = pathOf(tab)
+    const dir = path.slice(0, path.lastIndexOf('/')) || '/'
     try {
       await invoke<null>('launch_with', { desktopId: null, paths: [dir] })
     } catch {
@@ -189,11 +216,13 @@ export function App(): JSX.Element {
       const [media, launch] = await Promise.all([getMediaServer(), getLaunch()])
       applyShotSize(launch.flags)
       setServer(media)
-      await openPaths(launch.paths, { flags: launch.flags })
+      openPaths(launch.paths, { flags: launch.flags })
+      // `--open-with`: the Open with card for the first file (scripts/shot.sh)
+      if (launch.flags.includes('--open-with')) setTimeout(() => void showOpenWith(), 600)
     })()
     onCleanup(
       onLaunch((next: Launch) => {
-        void openPaths(next.paths, { flags: next.flags })
+        openPaths(next.paths, { flags: next.flags })
       }),
     )
     void getAppVersion().then((v) => setAbout((a) => (a === null ? null : v.version)))
@@ -205,7 +234,7 @@ export function App(): JSX.Element {
         else if (event.payload.type === 'leave') setDropping(false)
         else if (event.payload.type === 'drop') {
           setDropping(false)
-          void openPaths(event.payload.paths)
+          openPaths(event.payload.paths)
         }
       })
       .then((off) => {
@@ -216,7 +245,8 @@ export function App(): JSX.Element {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
       if (isMod(e)) {
-        const k = e.key.toLowerCase()
+        // the letter on the key, whatever the layout types (Ctrl+O on a Georgian one)
+        const k = comboKey(e).toLowerCase()
         if (k === 'o' || (k === 't' && !e.shiftKey)) {
           e.preventDefault()
           void browse()
@@ -312,7 +342,7 @@ export function App(): JSX.Element {
       run: () => {
         const t = tabs().find((x) => x.id === id)
         if (t !== undefined)
-          void navigator.clipboard.writeText(t.path).then(() => toast('Path copied'))
+          void navigator.clipboard.writeText(pathOf(t)).then(() => toast('Path copied'))
       },
     },
   ]
@@ -330,7 +360,7 @@ export function App(): JSX.Element {
             id: t.id,
             label: titles()[t.id] ?? t.title,
             icon: KIND_ICON[t.kind],
-            hint: t.path,
+            hint: pathOf(t),
           }))}
           selected={selected() ?? ''}
           label="Open documents"
@@ -360,7 +390,7 @@ export function App(): JSX.Element {
                   <Start
                     server={media()}
                     refresh={startRefresh()}
-                    onOpen={(p) => void openPaths([p])}
+                    onOpen={(p) => openPaths([p])}
                     onBrowse={() => void browse()}
                   />
                 </div>
@@ -372,11 +402,14 @@ export function App(): JSX.Element {
                     path: tab.path,
                     server: media(),
                     active: active(),
-                    onOpen: (p: string) => void openPaths([p]),
+                    onOpen: (p: string) => openPaths([p]),
                     onTitle: (title: string) => {
                       // a separate map: replacing the tab object would remount the view
                       setTitles((m) => ({ ...m, [tab.id]: title }))
                       if (active()) void getCurrentWindow().setTitle(titleFor(current()))
+                    },
+                    onPath: (path: string) => {
+                      if (pathOf(tab) !== path) setPaths((m) => ({ ...m, [tab.id]: path }))
                     },
                     onClose: () => closeTab(tab.id),
                     flags: tab.flags,
@@ -450,33 +483,17 @@ export function App(): JSX.Element {
           <dd>highlight.js (BSD-3), marked (MIT), DOMPurify (Apache-2.0)</dd>
         </dl>
       </Dialog>
-      <Dialog
+      <OpenWith
         open={openWith() !== null}
-        title="Open with"
-        description={baseName(openWith()?.path ?? '')}
+        subject={baseName(openWith()?.path ?? '')}
+        typeLabel={openWith()?.type?.description}
+        apps={openWith()?.apps}
+        allApps={openWith()?.all}
+        server={server()}
+        onShowAll={showAllApps}
+        onOpen={(app, always) => void launchWith(app, always)}
         onClose={() => setOpenWith(null)}
-      >
-        <Show
-          when={(openWith()?.apps ?? []).length > 0}
-          fallback={<p class="dialog-desc">No other app on this machine opens this type.</p>}
-        >
-          <ul class="app-list">
-            <For each={openWith()?.apps ?? []}>
-              {(app) => (
-                <li>
-                  <button type="button" class="app-list-row" onClick={() => void launchWith(app)}>
-                    <Icon name="external-link" />
-                    <span class="app-list-name">{app.name}</span>
-                    <Show when={app.default}>
-                      <span class="app-list-hint">Default</span>
-                    </Show>
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
-      </Dialog>
+      />
       <Toasts />
     </div>
   )

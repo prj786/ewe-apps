@@ -202,6 +202,18 @@ pub fn list(path: &Path) -> Result<ComicListing, String> {
     Err("No pages were found in this archive. Comics in RAR need bsdtar, 7z or unar.".into())
 }
 
+/// `name` as a pattern that matches only itself (`\`, `[`, `*`, `?` escaped).
+fn glob_escape(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    for c in name.chars() {
+        if matches!(c, '\\' | '[' | '*' | '?') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// The bytes of one page.
 pub fn page(path: &Path, name: &str, source: &str) -> Result<Vec<u8>, String> {
     if !is_page(name) {
@@ -217,7 +229,9 @@ pub fn page(path: &Path, name: &str, source: &str) -> Result<Vec<u8>, String> {
             std::io::Read::read_to_end(&mut entry, &mut out).map_err(|e| e.to_string())?;
             Ok(out)
         }
-        "bsdtar" => run("bsdtar", &["-xOf", &p, "--", name]),
+        // bsdtar takes the member name as a pattern: `[Group] Title/001.jpg` matched
+        // nothing and every page of such a book failed
+        "bsdtar" => run("bsdtar", &["-xOf", &p, "--", &glob_escape(name)]),
         "7z" => run("7z", &["e", "-so", "-ba", "--", &p, name]),
         "unar" => {
             let dir = tempfile_dir()?;
@@ -252,6 +266,40 @@ fn tempfile_dir() -> Result<std::path::PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_name_is_escaped_for_bsdtar() {
+        assert_eq!(
+            glob_escape("[Group] Title/001.jpg"),
+            "\\[Group] Title/001.jpg"
+        );
+        assert_eq!(glob_escape("what?*.png"), "what\\?\\*.png");
+        assert_eq!(glob_escape("plain/01.jpg"), "plain/01.jpg");
+        // the real thing, when bsdtar is here: a page under a folder with brackets
+        if std::process::Command::new("bsdtar")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let inner = dir.path().join("[Group] Title");
+        std::fs::create_dir(&inner).unwrap();
+        std::fs::write(inner.join("001.jpg"), b"\xff\xd8page").unwrap();
+        let book = dir.path().join("book.cbt");
+        let made = std::process::Command::new("bsdtar")
+            .arg("-cf")
+            .arg(&book)
+            .arg("-C")
+            .arg(dir.path())
+            .arg("[Group] Title")
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let bytes = page(&book, "[Group] Title/001.jpg", "bsdtar").unwrap();
+        assert_eq!(bytes, b"\xff\xd8page");
+    }
 
     #[test]
     fn natural_order_counts_numbers() {

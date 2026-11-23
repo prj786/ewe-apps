@@ -2,8 +2,10 @@ import { createEffect, onCleanup } from 'solid-js'
 
 /** Is the key going to a text field (then the view keeps its hands off)? */
 export function inTextInput(e: KeyboardEvent): boolean {
-  const t = e.target as HTMLElement | null
-  if (t === null) return false
+  // a key re-sent from a book's iframe arrives with the Window as its target: no
+  // tagName, no closest() — it threw, and no key worked while reading a book
+  const t = e.target
+  if (!(t instanceof HTMLElement)) return false
   const tag = t.tagName
   return (
     tag === 'INPUT' ||

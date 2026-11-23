@@ -40,6 +40,9 @@ export function Dialog(props: DialogProps): JSX.Element {
       props.onClose()
       return
     }
+    // every other key stays in the dialog: the window's own shortcuts (next picture
+    // on Space, Move to Trash on Delete…) are not for a page that is covered
+    e.stopPropagation()
     if (e.key !== 'Tab') return
     const list = focusables()
     const first = list[0]
@@ -58,6 +61,9 @@ export function Dialog(props: DialogProps): JSX.Element {
   }
 
   const focusFirst = () => {
+    // a field that asked for the focus keeps it (it used to go to the primary button
+    // a moment later: nothing typed into Compress, Extract to or Connect landed)
+    if (card?.contains(document.activeElement) === true && document.activeElement !== card) return
     const list = focusables()
     const primary = list.find((el) => el.classList.contains('btn--primary'))
     ;(primary ?? list[0] ?? card)?.focus()

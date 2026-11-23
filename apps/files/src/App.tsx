@@ -25,6 +25,7 @@ import {
   appIconUrl,
   appStanding,
   baseName,
+  comboKey,
   cardFileName,
   displayName,
   fileKind,
@@ -65,6 +66,7 @@ import {
   Tabs,
   Toasts,
   applyShotSize,
+  boot,
   dismissToast,
   getMediaServer,
   toast,
@@ -99,7 +101,7 @@ import {
   type PaneHandle,
   type Row,
 } from './pane'
-import { pdfThumb } from './pdfview'
+import { pdfThumb } from './pdfthumb'
 import { Places } from './places'
 import { Preview } from './preview'
 import { ZOOMS, loadPrefs, savePrefs, viewFor, type AppPrefs, type ViewPrefs } from './prefs'
@@ -360,7 +362,7 @@ export function App(): JSX.Element {
   const say = (text: string, kind: 'info' | 'danger' | 'success' = 'info') => toast(text, { kind })
 
   const reloadAll = () => {
-    for (const p of panes.values()) p.reload()
+    for (const p of panes.values()) void p.reload()
     refreshTrash()
   }
 
@@ -436,7 +438,7 @@ export function App(): JSX.Element {
         if (now === lastLive) return
         lastLive = now
         const dir = appsDir()
-        for (const pane of panes.values()) if (pane.path() === dir) pane.reload()
+        for (const pane of panes.values()) if (pane.path() === dir) void pane.reload()
       },
       { defer: true },
     ),
@@ -461,31 +463,48 @@ export function App(): JSX.Element {
     const rows = pane.rows().filter((r) => chosen.has(r.path))
     const apps = removesApps(rows)
     const verb = apps ? removal(rows).done : ''
-    void api.opStart('trash', paths, null).then((id) => {
-      refreshOps()
-      const watch = onEvent('op-progress', (p) => {
-        if (p.id !== id) return
-        if (p.state === 'done') {
-          watch()
-          say(
-            apps
-              ? paths.length === 1
-                ? `${verb} ${first}`
-                : `${verb} ${paths.length} apps`
-              : paths.length === 1
-                ? `Moved “${first}” to Trash`
-                : `Moved ${paths.length} items to Trash`,
-          )
-          toast('Moved to Trash', {
-            kind: 'success',
-            action: { label: 'Undo', run: () => void undo() },
-          })
-        } else if (p.state === 'failed') {
-          watch()
-          say(p.error ?? 'Could not move to Trash', 'danger')
-        }
-      })
+    // One toast, with Undo, however fast the job is. The listener is there before the
+    // job starts (a one-file trash is done before `op_start` has answered: the toast
+    // was then never shown and the listener never removed), and what it heard before
+    // the id was known is looked at once it is.
+    const text = apps
+      ? paths.length === 1
+        ? `${verb} ${first}`
+        : `${verb} ${paths.length} apps`
+      : paths.length === 1
+        ? `Moved “${first}” to Trash`
+        : `Moved ${paths.length} items to Trash`
+    let id: number | null = null
+    let settled = false
+    const early: OpProgress[] = []
+    const finish = (p: OpProgress) => {
+      if (settled || !['done', 'failed', 'cancelled'].includes(p.state)) return
+      settled = true
+      watch()
+      if (p.state === 'done') {
+        pane.forget(paths)
+        toast(text, { kind: 'success', action: { label: 'Undo', run: () => void undo() } })
+      } else if (p.state === 'failed') say(p.error ?? 'Could not move to Trash', 'danger')
+    }
+    const watch = onEvent('op-progress', (p) => {
+      if (id === null) early.push(p)
+      else if (p.id === id) finish(p)
     })
+    void api.opStart('trash', paths, null).then(
+      (started) => {
+        id = started
+        refreshOps()
+        for (const p of early) if (p.id === started) finish(p)
+        void api.opsList().then((list) => {
+          const now = list.find((o) => o.id === started)
+          if (now !== undefined) finish(now)
+        })
+      },
+      (e: unknown) => {
+        watch()
+        say(errorText(e), 'danger')
+      },
+    )
   }
 
   /** What taking apps out of Applications is called: an app that is still installing
@@ -589,7 +608,7 @@ export function App(): JSX.Element {
         if (target !== null) {
           const parent = parentOf(out)
           if (parent === target.path()) {
-            target.reload()
+            void target.reload()
             setTimeout(() => target.select([out]), 150)
           } else if (dest !== null) target.go(parent ?? out, { select: [out] })
         }
@@ -776,13 +795,13 @@ export function App(): JSX.Element {
       'New folder',
     )
     void api.mkdir(pane.path(), name).then(
-      (created) => {
-        pane.reload()
-        setTimeout(() => {
+      (created) =>
+        // when the listing is in, not 120 ms later: on a slow folder the row was not
+        // there yet, and what was typed meanwhile went to the filter
+        pane.reload().then(() => {
           pane.select([created])
           pane.startRename(created)
-        }, 120)
-      },
+        }),
       (e: unknown) => say(errorText(e), 'danger'),
     )
   }
@@ -794,13 +813,13 @@ export function App(): JSX.Element {
       base,
     )
     void api.mkfile(pane.path(), name, template?.path ?? null).then(
-      (created) => {
-        pane.reload()
-        setTimeout(() => {
+      (created) =>
+        // when the listing is in, not 120 ms later: on a slow folder the row was not
+        // there yet, and what was typed meanwhile went to the filter
+        pane.reload().then(() => {
           pane.select([created])
           pane.startRename(created)
-        }, 120)
-      },
+        }),
       (e: unknown) => say(errorText(e), 'danger'),
     )
   }
@@ -816,10 +835,7 @@ export function App(): JSX.Element {
       return
     }
     void api.rename(entry.path, next).then(
-      (renamed) => {
-        pane.reload()
-        setTimeout(() => pane.select([renamed]), 120)
-      },
+      (renamed) => pane.reload().then(() => pane.select([renamed])),
       (e: unknown) => say(errorText(e), 'danger'),
     )
   }
@@ -835,7 +851,7 @@ export function App(): JSX.Element {
           failed++
         }
       }
-      pane.reload()
+      void pane.reload()
       say(
         failed === 0
           ? `Renamed ${pairs.length} items`
@@ -857,7 +873,7 @@ export function App(): JSX.Element {
     void api.archiveCompress(paths, format, name).then(
       (out) => {
         say(`Created “${baseName(out)}”`, 'success')
-        pane.reload()
+        void pane.reload()
         setTimeout(() => pane.select([out]), 150)
       },
       (e: unknown) => say(errorText(e), 'danger'),
@@ -1030,7 +1046,11 @@ export function App(): JSX.Element {
             () => setDialog({ kind: 'rename-many', entries: sel, pane }),
             { hint: 'F2' },
           )
-        : item('rename', 'Rename', 'pencil', () => pane.startRename(entry.path), { hint: 'F2' }),
+        : item('rename', 'Rename', 'pencil', () => pane.startRename(entry.path), {
+            hint: 'F2',
+            // search results and the Trash have no rename in place
+            disabled: pane.mode() !== 'folder',
+          }),
       item('link', many ? 'Create links' : 'Create link', 'link', () => {
         void Promise.all(paths.map((p) => api.link(p, pane.path()))).then(
           () => pane.reload(),
@@ -1131,7 +1151,7 @@ export function App(): JSX.Element {
             () => setPref(pane.path(), { view: 'list' }),
             { hint: 'Ctrl+2' },
           ),
-          item('refresh', 'Refresh', 'refresh-cw', () => pane.reload(), { hint: 'F5' }),
+          item('refresh', 'Refresh', 'refresh-cw', () => void pane.reload(), { hint: 'F5' }),
         ],
       })
       return
@@ -1152,7 +1172,7 @@ export function App(): JSX.Element {
       items: [
         item('new-folder', 'New folder', 'folder-plus', () => newFolder(pane), {
           hint: 'Ctrl+Shift+N',
-          disabled: !writable,
+          disabled: !writable || pane.mode() !== 'folder',
         }),
         {
           type: 'item',
@@ -1410,10 +1430,13 @@ export function App(): JSX.Element {
     const ctrl = e.ctrlKey || e.metaKey
     const target = e.target as HTMLElement | null
     const inInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+    // Ctrl+letter by the letter on the key: `e.key` is "C" under Caps Lock and "ც" on
+    // the Georgian layout, and Ctrl+C, V, X, A, Z, T, W… were dead in both
+    const k = comboKey(e)
     // keys that work everywhere
-    if (ctrl && e.key === 't') openTab(pane.path() === TRASH_PATH ? home() : pane.path())
-    else if (ctrl && e.key === 'w') closeTab(activeTab())
-    else if (ctrl && e.key === 'n') void api.newWindow([pane.path()])
+    if (ctrl && k === 't') openTab(pane.path() === TRASH_PATH ? home() : pane.path())
+    else if (ctrl && k === 'w') closeTab(activeTab())
+    else if (ctrl && k === 'n' && !e.shiftKey) void api.newWindow([pane.path()])
     else if (ctrl && e.key === 'Tab') {
       const list = tabs
       const i = list.findIndex((t) => t.id === activeTab())
@@ -1426,18 +1449,18 @@ export function App(): JSX.Element {
     else if (e.key === 'F9') togglePreview()
     else if (e.key === 'Escape' && placesDrawer()) setPlacesDrawer(false)
     else if (e.key === 'Escape' && previewOverlay()) setPreviewOverlay(false)
-    else if (ctrl && e.key === 'l') pane.editPath()
-    else if (ctrl && e.key === 'f' && !e.shiftKey) pane.focusFilter()
-    else if (ctrl && e.key === 'F') setSearchOpen(true)
-    else if (e.key === 'F5' || (ctrl && e.key === 'r')) pane.reload()
-    else if (ctrl && e.key === 'h') setPref(pane.path(), { hidden: !prefsFor(pane.path()).hidden })
+    else if (ctrl && k === 'l') pane.editPath()
+    else if (ctrl && k === 'f' && !e.shiftKey) pane.focusFilter()
+    else if (ctrl && k === 'f') setSearchOpen(true)
+    else if (e.key === 'F5' || (ctrl && k === 'r')) void pane.reload()
+    else if (ctrl && k === 'h') setPref(pane.path(), { hidden: !prefsFor(pane.path()).hidden })
     else if (ctrl && (e.key === '=' || e.key === '+')) zoom(pane, 1)
     else if (ctrl && e.key === '-') zoom(pane, -1)
     else if (ctrl && e.key === '0') setPref(pane.path(), { zoom: 96 })
     else if (ctrl && e.key === '1') setPref(pane.path(), { view: 'grid' })
     else if (ctrl && e.key === '2') setPref(pane.path(), { view: 'list' })
-    else if (ctrl && e.key === 'z' && !inInput) void undo()
-    else if (ctrl && e.shiftKey && e.key === 'N' && !inInput) newFolder(pane)
+    else if (ctrl && k === 'z' && !inInput) void undo()
+    else if (ctrl && e.shiftKey && k === 'n' && !inInput) newFolder(pane)
     else if (e.altKey && e.key === 'ArrowUp') pane.up()
     else if (e.altKey && e.key === 'ArrowLeft') pane.back()
     else if (e.altKey && e.key === 'ArrowRight') pane.forward()
@@ -1475,18 +1498,18 @@ export function App(): JSX.Element {
       if (removesApps(sel)) return
       if (sel.length > 1) setDialog({ kind: 'rename-many', entries: sel, pane })
       else pane.startRename()
-    } else if (ctrl && e.key === 'a') pane.selectAll()
-    else if (ctrl && e.key === 'c')
+    } else if (ctrl && k === 'a') pane.selectAll()
+    else if (ctrl && k === 'c')
       setClip(
         'copy',
         pane.selected().map((x) => x.path),
       )
-    else if (ctrl && e.key === 'x')
+    else if (ctrl && k === 'x')
       setClip(
         'cut',
         pane.selected().map((x) => x.path),
       )
-    else if (ctrl && e.key === 'v') pasteInto(pane.path())
+    else if (ctrl && k === 'v') pasteInto(pane.path())
     else if (e.key === 'Escape') {
       if (pane.isSearching()) pane.stopSearch()
       else if (!pane.clearFilter()) pane.select([])
@@ -1503,7 +1526,9 @@ export function App(): JSX.Element {
 
   // ---- launches ----------------------------------------------------------------------------
 
-  const applyLaunch = async (l: Launch, fresh: boolean) => {
+  /** `dirs`: which of `l.paths` are folders, when the core already said (the window's
+   *  own launch); a launch that arrives later asks. */
+  const applyLaunch = async (l: Launch, fresh: boolean, dirs: readonly boolean[] | null = null) => {
     const flagValue = (name: string): string | null => {
       const f = l.flags.find((x) => x === name || x.startsWith(`${name}=`))
       if (f === undefined) return null
@@ -1526,14 +1551,15 @@ export function App(): JSX.Element {
     }
     const selectMode = selectFlag !== null || props !== null
     let first = true
-    for (const p of paths) {
-      let info: { type: string } | null
-      try {
-        info = await api.mimeOf(p)
-      } catch {
-        info = null
+    for (const [i, p] of paths.entries()) {
+      let isDir = i < l.paths.length ? dirs?.[i] : undefined
+      if (isDir === undefined) {
+        try {
+          isDir = (await api.mimeOf(p)).type === 'inode/directory'
+        } catch {
+          isDir = false
+        }
       }
-      const isDir = info?.type === 'inode/directory'
       if (isDir && !selectMode) openTab(p, { activate: first })
       else {
         const parent = parentOf(p) ?? '/'
@@ -1733,7 +1759,7 @@ export function App(): JSX.Element {
     refreshTrash()
     refreshOps()
     void api.windowLaunch().then((l) =>
-      applyLaunch(l, true).then(() => {
+      applyLaunch(l, true, l === boot().launch ? (boot().dirs ?? null) : null).then(() => {
         applyShotSize(l.flags)
         const shot = l.flags.find((f) => f.startsWith('--shot='))
         if (shot !== undefined) runShot(shot.slice(7))
@@ -1760,7 +1786,7 @@ export function App(): JSX.Element {
               p.kind === 'restore' ||
               p.kind === 'move'
             )
-              pane.reload()
+              void pane.reload()
           }
           // cards that landed in Applications: "Installing…" was said, the tile shows it
           const installs =
@@ -2184,6 +2210,7 @@ export function App(): JSX.Element {
                 <PropertiesDialog
                   paths={(x() as { paths: string[] }).paths}
                   mediaThumb={(p) => thumb(p, 256)}
+                  server={server()}
                   onClose={() => setDialog(null)}
                 />
               )}
@@ -2192,6 +2219,15 @@ export function App(): JSX.Element {
               {(x) => (
                 <OpenWithDialog
                   paths={(x() as { paths: string[] }).paths}
+                  server={server()}
+                  onFindApp={
+                    tools()?.komble === true
+                      ? () => {
+                          setDialog(null)
+                          void api.openStore().catch((e: unknown) => say(errorText(e), 'danger'))
+                        }
+                      : undefined
+                  }
                   onClose={() => setDialog(null)}
                 />
               )}

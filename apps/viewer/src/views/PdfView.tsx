@@ -18,7 +18,7 @@ import type {
   PDFLinkService,
   PDFViewer,
 } from 'pdfjs-dist/web/pdf_viewer.mjs'
-import { formatBytes, rawUrl } from '@ewe/shared'
+import { comboKey, formatBytes, rawUrl } from '@ewe/shared'
 import {
   Button,
   Dialog,
@@ -32,6 +32,7 @@ import {
   Toolbar,
   addRecent,
   toast,
+  trace,
   type IconName,
   type MenuEntry,
 } from '@ewe/ui'
@@ -43,6 +44,7 @@ import { fillFlags, flagNumber, flagValue, hasFlag } from '../lib/flags'
 import { DOCUMENT_OPTIONS, loadPdfJs, loadPdfViewer } from '../lib/pdfjs'
 import { getSetting, recallPosition, savePosition, setSetting } from '../lib/store'
 import { printPages } from '../lib/print'
+import { wheelStepper } from '../lib/wheel'
 import { percent, zoomStep, type ViewProps } from './types'
 
 type Mode = 'continuous' | 'single' | 'two'
@@ -162,7 +164,9 @@ export function PdfView(props: ViewProps): JSX.Element {
   let restoring = true
   let printCancel: (() => void) | null = null
   const thumbCanvases = new Map<number, HTMLCanvasElement>()
-  const thumbRendered = new Set<number>()
+  // which canvases are drawn (not which page numbers: the list is rebuilt when the
+  // sidebar comes back, and pages "already drawn" stayed blank on the new canvases)
+  const thumbRendered = new WeakSet<HTMLCanvasElement>()
   let thumbObserver: IntersectionObserver | null = null
 
   const url = () => rawUrl(props.server, props.path)
@@ -377,8 +381,8 @@ export function PdfView(props: ViewProps): JSX.Element {
   }
 
   const renderThumb = async (n: number, canvas: HTMLCanvasElement) => {
-    if (doc === null || thumbRendered.has(n)) return
-    thumbRendered.add(n)
+    if (doc === null || thumbRendered.has(canvas)) return
+    thumbRendered.add(canvas)
     try {
       const pg = await doc.getPage(n)
       const base = pg.getViewport({ scale: 1 })
@@ -391,7 +395,7 @@ export function PdfView(props: ViewProps): JSX.Element {
       canvas.style.height = `${Math.round(vp.height / ratio)}px`
       await pg.render({ canvas, viewport: vp }).promise
     } catch {
-      thumbRendered.delete(n)
+      thumbRendered.delete(canvas)
     }
   }
 
@@ -465,6 +469,7 @@ export function PdfView(props: ViewProps): JSX.Element {
           })
         })()
       })
+      eventBus.on('pagerendered', () => trace('ready'))
       eventBus.on('pagechanging', (e: { pageNumber: number }) => {
         setPage(e.pageNumber)
         setPageText(String(e.pageNumber))
@@ -503,6 +508,12 @@ export function PdfView(props: ViewProps): JSX.Element {
       }
       try {
         doc = await loading.promise
+        // for scripts/perf.sh: is pdf.js parsing in a worker, or on this thread
+        trace(
+          (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker === undefined
+            ? 'pdf-worker'
+            : 'pdf-no-worker',
+        )
       } catch (e) {
         if (destroyed) return
         setStatus('error')
@@ -581,10 +592,13 @@ export function PdfView(props: ViewProps): JSX.Element {
     onCleanup(() => container?.removeEventListener('click', onClick, true))
 
     // Ctrl+wheel and touchpad pinch zoom
+    // one zoom step per notch, or per stretch of a touchpad swipe (not per event)
+    const zoomWheel = wheelStepper({ threshold: 50 })
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return
       e.preventDefault()
-      zoomBy(e.deltaY < 0 ? 1 : -1)
+      const dir = zoomWheel(e)
+      if (dir !== 0) zoomBy(dir < 0 ? 1 : -1)
     }
     container?.addEventListener('wheel', onWheel, { passive: false })
     onCleanup(() => container?.removeEventListener('wheel', onWheel))
@@ -605,15 +619,30 @@ export function PdfView(props: ViewProps): JSX.Element {
       container?.removeEventListener('gesturechange', onGestureChange)
     })
 
-    // refit on resize when a fit is chosen
+    // Refit on resize when a fit is chosen. Not while the tab is hidden (its
+    // container is 0 wide: pdf.js computed a negative scale and threw every page
+    // away, and coming back to the tab drew them all again), only when the size
+    // really changed, and once per frame: every refit lays all pages out anew.
+    let fitted = { w: 0, h: 0 }
+    let refit = 0
     const ro = new ResizeObserver(() => {
-      if (pdfViewer === null || status() !== 'ready') return
-      const v = scaleValue()
-      if (v === 'page-width' || v === 'page-fit' || v === 'auto') pdfViewer.currentScaleValue = v
-      else pdfViewer.update()
+      if (container === undefined || container.clientWidth === 0) return
+      const next = { w: container.clientWidth, h: container.clientHeight }
+      if (next.w === fitted.w && next.h === fitted.h) return
+      fitted = next
+      cancelAnimationFrame(refit)
+      refit = requestAnimationFrame(() => {
+        if (pdfViewer === null || status() !== 'ready') return
+        const v = scaleValue()
+        if (v === 'page-width' || v === 'page-fit' || v === 'auto') pdfViewer.currentScaleValue = v
+        else pdfViewer.update()
+      })
     })
     if (container !== undefined) ro.observe(container)
-    onCleanup(() => ro.disconnect())
+    onCleanup(() => {
+      ro.disconnect()
+      cancelAnimationFrame(refit)
+    })
 
     onCleanup(() => {
       destroyed = true
@@ -650,7 +679,7 @@ export function PdfView(props: ViewProps): JSX.Element {
         return false
       }
       if (isMod(e) && !e.altKey) {
-        switch (e.key) {
+        switch (comboKey(e)) {
           case 'f':
             openFind()
             return true
@@ -923,7 +952,10 @@ export function PdfView(props: ViewProps): JSX.Element {
       class="pdf"
       classList={{ 'pdf--night': night(), 'pdf--presentation': presentation() }}
       ref={(el) => {
-        const ro = new ResizeObserver(() => setBarWidth(el.clientWidth))
+        // a hidden tab is 0 wide: the toolbar keeps the shape it had
+        const ro = new ResizeObserver(() => {
+          if (el.clientWidth > 0) setBarWidth(el.clientWidth)
+        })
         ro.observe(el)
         onCleanup(() => ro.disconnect())
       }}

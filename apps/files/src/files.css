@@ -1866,54 +1866,6 @@
   white-space: nowrap;
 }
 
-.applist {
-  display: flex;
-  flex-direction: column;
-  max-height: 280px;
-  padding: var(--space-xxs);
-  overflow-y: auto;
-  border-radius: var(--primary);
-  background: var(--surface-sunken);
-  scrollbar-width: thin;
-}
-
-.applist-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
-  height: var(--control-lg);
-  padding: 0 var(--space-s);
-  border-radius: var(--secondary);
-  color: var(--text-secondary);
-  text-align: left;
-}
-
-.applist-row:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.applist-row.selected {
-  background: var(--accent-subtle);
-  color: var(--text-primary);
-}
-
-.applist-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.applist-badge {
-  padding: 0 var(--space-xs);
-  border-radius: var(--slight);
-  background: var(--surface-overlay);
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
-
 .rename-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

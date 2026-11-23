@@ -23,8 +23,23 @@ pub struct AppInfo {
     pub id: String,
     pub name: String,
     pub icon: Option<String>,
+    /// the icon's file in the icon theme (an SVG or a PNG), for the page to show
+    pub icon_path: Option<String>,
     pub exec: String,
     pub default: bool,
+}
+
+/// The size app icons are looked up at: twice the 24px a row shows, for a 2× screen.
+const ICON_SIZE: i32 = 48;
+
+/// The file of an app's icon in the current icon theme. Main thread only (GTK); `None`
+/// without a display, or when the theme has no such icon.
+fn icon_file(icon: &gio::Icon) -> Option<String> {
+    use gtk::prelude::IconThemeExt;
+    let theme = gtk::IconTheme::default()?;
+    let info = theme.lookup_by_gicon(icon, ICON_SIZE, gtk::IconLookupFlags::FORCE_SIZE)?;
+    let path = info.filename()?;
+    path.is_file().then(|| path.to_string_lossy().into_owned())
 }
 
 /// The content type of a path: directory, or sniffed from the name and the first 4 KiB.
@@ -38,8 +53,14 @@ pub fn content_type(path: &Path) -> MimeInfo {
             uncertain: false,
         };
     }
+    // Only a regular file is opened for a look at its first bytes. Opening a FIFO with
+    // no writer never returns (`~/.steam/steam.pipe` froze the app when it was merely
+    // selected with the preview open), and a device is not ours to read: the name
+    // has to do for those.
     let mut head = Vec::new();
-    if let Ok(f) = std::fs::File::open(path) {
+    if std::fs::metadata(path).is_ok_and(|m| m.is_file())
+        && let Ok(f) = std::fs::File::open(path)
+    {
         use std::io::Read;
         let _ = f.take(4096).read_to_end(&mut head);
     }
@@ -61,6 +82,7 @@ fn describe(app: &gio::AppInfo, default_id: Option<&str>) -> Option<AppInfo> {
             .icon()
             .and_then(|i| IconExt::to_string(&i))
             .map(|s| s.to_string()),
+        icon_path: app.icon().as_ref().and_then(icon_file),
         exec: app
             .commandline()
             .map(|p| p.to_string_lossy().into_owned())
@@ -138,5 +160,19 @@ mod tests {
         let txt = dir.path().join("notes.txt");
         std::fs::write(&txt, "hello\n").unwrap();
         assert_eq!(content_type(&txt).content_type, "text/plain");
+    }
+
+    #[test]
+    fn a_pipe_is_named_without_being_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let pipe = dir.path().join("steam.pipe");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        // opening it would wait for a writer for ever; this returns
+        let info = content_type(&pipe);
+        assert!(!info.content_type.is_empty());
     }
 }

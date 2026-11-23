@@ -12,6 +12,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { LogicalSize, getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import {
+  comboKey,
   baseName,
   compareTracks,
   dirName,
@@ -459,11 +460,13 @@ export function App(): JSX.Element {
       })
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
-      if (e.key === 'o' || e.key === 'O') void openFiles()
-      else if (e.key === 'l' || e.key === 'L') setUrlDialog(true)
-      else if (e.key === '1') setMode('video')
-      else if (e.key === '2') setMode('music')
-      else if (e.key === 'q' || e.key === 'Q') void win.close()
+      // the letter on the key, whatever the layout types
+      const k = comboKey(e)
+      if (k === 'o') void openFiles()
+      else if (k === 'l') setUrlDialog(true)
+      else if (k === '1') setMode('video')
+      else if (k === '2') setMode('music')
+      else if (k === 'q') void win.close()
       else return
       e.preventDefault()
     }

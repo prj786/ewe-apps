@@ -20,10 +20,12 @@ packages/shared  @ewe/shared        pure TS, tested with vitest: models (Point/R
                                     shapes the core returns: Launch, AppInfo, MimeInfo, …)
 packages/ui      @ewe/ui            Solid kit: Icon (Lucide paths inline), Menu (+submenus, swatches),
                                     Switch, Segmented, EmptyState, Dialog, Toast(s), Tooltip, Slider,
-                                    ProgressBar, Tabs, Toolbar/IconButton/Button, Field; styles/
+                                    ProgressBar, Tabs, Toolbar/IconButton/Button, Field, OpenWith +
+                                    AppRows (the design system's "Open with" card); styles/
                                     (tokens.css, base.css, components.css, fonts.css + Geist woff2);
                                     theme/ (parseEweTokens, applyTheme, followTheme); app/bridge.ts
-                                    (getLaunch, onLaunch, getMediaServer, getAppVersion, addRecent)
+                                    (boot, getLaunch, onLaunch, getMediaServer, getAppVersion, addRecent,
+                                    trace), app/fonts.ts (fontsReady)
 crates/core      ewe-app-core       theme (read + notify watch), server (axum loopback media server),
                                     thumbs (freedesktop cache), text (any encoding → UTF-8: BOM, UTF-8,
                                     chardetng + encoding_rs), picture (HEIC → cached JPEG; HEIC/AVIF/
@@ -40,6 +42,8 @@ packaging/                          *.desktop (MimeType lists, StartupWMClass = 
                                     + hicolor PNGs (scripts/gen-icons.sh)
 PKGBUILD, .github/workflows/{ci,release}.yml, VERSION, LICENSE (GPL-3.0-only)
 scripts/shot.sh                     headless launch + screenshot + memory (see Verify)
+scripts/perf.sh                     headless launches with EWE_APPS_TRACE=1: every start-up mark in ms
+                                    since the launch, several runs and the median (see "Start-up")
 ```
 
 ## Commands
@@ -55,7 +59,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.0-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.1-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -71,7 +75,10 @@ handler![…])`): `--version` prints JSON and exits 0 (rule 5); `glib::set_prgna
   a second launch focuses the window and emits the `launch` event with its parsed argv; the media
   server and the theme watcher start; one window `main` (undecorated, Hyprland tiles) opens
   `index.html`; when it closes Tauri exits (nothing resident). Add app commands with
-  `ewe_app_core::handler![my_cmd]` — it already lists the core's.
+  `ewe_app_core::handler![my_cmd]` — it already lists the core's. Every window goes through
+  `window_builder` in app.rs: built hidden and then shown, with the theme's variant and page
+  colour, and with the **boot script** (`window.__ewe = { theme, server, app, launch, dirs }`,
+  `boot()` in the kit) — see "Start-up".
 - **Launch args** (`launch.rs`, `getLaunch()` / `onLaunch()`): tokens starting with `--` are
   `flags` (use `--key=value`; a flag's value is never a separate token), everything else is a
   path (`file://` URLs decoded, relative paths joined to `cwd`, other URLs dropped). `--demo`
@@ -131,12 +138,70 @@ recently-used.xbel`, bumps or adds the entry with this app in `bookmark:applicat
   (`exec="'ewe-viewer %u'"`), prunes entries older than 30 days (GTK's default), writes atomically 0600. ewe Browser's Home and GTK dialogs read it.
 - **Mime + apps** (`mime.rs`, commands `mime_of`, `apps_for {contentType, all?}`, `default_app`,
   `set_default_app {desktopId, contentType}`, `launch_with {desktopId|null, paths}`): GIO, on the
-  main thread (GIO objects are not Send; these commands are sync).
+  main thread (GIO objects are not Send; these commands are sync) — except `mime_of`, which reads
+  the file's first bytes and runs off it (only for a regular file: opening a FIFO never returns).
+  An `AppInfo` carries `iconPath`, the icon's file from the GTK icon theme (`icon_file`, main
+  thread): the page shows it with `rawUrl()`.
+- **Open with** (`OpenWith` + `AppRows` in the kit, design system "File picker → Open with", the
+  same card as the shell's `AppChooser.qml`): a 400px dialog, "Choose an app for “name”.", rows
+  `control-2xl` tall with the app's own icon, the default first and chosen (`accent-subtle` + a
+  check), six rows then it scrolls, "Other apps…" (every app + a search field), "Always use this
+  app for <type> files", and in the footer "Find an app in Komble…" on the left, Cancel and Open.
+  ↑ ↓ move, Enter or a double click opens. ewe Files (`OpenWithDialog`, also what `ewe-files-app
+--open-with=<path>` and the Player's "Open with another app" show; Properties → Open with uses
+  `AppRows`), ewe Viewer (the app menu, the picture's ⋯, the "cannot show this" page).
+- **Shortcut keys** (`comboKey(e)` in `@ewe/shared`): the Latin letter of a key in lower case —
+  `e.key` when it is one, else the letter printed on the key (`e.code`). Compare shortcuts with
+  it, never with `e.key`: under Caps Lock `e.key` is "C", on the Georgian layout "ც", and Ctrl+C
+  and friends were dead in both.
 - **Kit conventions** (from ewe Browser): every on/off is a `Switch`, 2–5 choices a `Segmented`,
   menus are data (`MenuEntry[]`) rendered by `Menu` at a `Point`, `EmptyState` for empty pages,
   `toast()` for short confirmations, `Dialog` for anything modal. `.page` is `surface-raised`,
   headers `.app-header`, `.toolbar` rows with `.toolbar-spacer`. No `text-transform: uppercase`.
   Icons: add Lucide paths to `Icon.tsx` (`ICONS`), stroke 2, 24-box.
+
+## Start-up (measure, do not guess)
+
+`scripts/perf.sh <binary> <theme-dir|-> [args…]` launches the app in headless cage with
+`EWE_APPS_TRACE=1` and prints the marks as ms since the launch (`PERF_RUNS`, default 5, then the
+median): `main`, `setup`, `services`, `window`, `setup-done` from Rust (`crate::trace::mark`),
+`page:script`, `page:fonts`, then `page:listed` / `page:painted` (Files: the first folder is in,
+and drawn) or `page:ready` (Viewer: the picture or the first PDF page is drawn; `page:pdf-worker`
+says pdf.js parses in a worker) from the page (`trace(label)` in the kit, once per label).
+Without the variable a mark costs nothing. Run it with `HOME=<fixture>`.
+
+Measured 2026-11-23 (release, headless cage, warm disk, medians of 5–7 runs, ±30 ms between
+runs): ewe Files to a painted folder **568 → about 405 ms**, ewe Viewer to a 4000×3000 JPEG
+**597 → 470–500 ms**, to a PDF's first page **686 → about 560 ms**. What the difference was, each found with strace (`pacman -Sp strace`, unpacked
+into a temp dir — nothing installed):
+
+- **A window is built hidden and then shown** (`window_builder` / `finish`). tao shows a window
+  BEFORE it turns the decorations off; on Wayland GTK then builds its own title bar for that
+  moment and loads three symbolic icons, and since gdk-pixbuf 2.44 every image is decoded by a
+  sandboxed glycin loader that has to be spawned (bwrap) — ~40 ms of every launch (125 ms under
+  strace) for a title bar nobody sees. Never load a pixbuf on the start-up path.
+- **The page does not ask for what the core can hand it.** The first IPC answers come back ~45 ms
+  after the first call, whatever is asked. The boot script puts the theme tokens, the media
+  server, the app's identity, this window's launch and "which of its paths are folders" on
+  `window.__ewe` before any script: `followTheme()` applies the theme in the same task (the first
+  paint wears it), `getLaunch()` / `getMediaServer()` / `getAppVersion()` and Files'
+  `api.windowLaunch()` resolve at once. The Viewer opens a tab at once and checks the file behind
+  it. A window whose launch the core does not know gets `launch: null` and asks as before.
+- **Render after the fonts** (`fontsReady()`, and the `<link rel="preload">`s in index.html). The
+  faces are web fonts; text laid out before they arrive is measured with fallbacks, and WebKit
+  finds a fallback by trying every family of the stack in turn, opening each font file — eighteen
+  Noto script faces, none with a Latin letter, once per weight and size: 190 files, 150–250 ms.
+- **The Latin face second** (`LATIN_FALLBACK` in theme/parse.ts, mirrored in tokens.css): "Noto
+  Sans" / "Noto Sans Mono" right after Geist, before the script faces. A character Geist lacks —
+  the narrow no-break space ICU writes in "5:45 PM" — walked the whole stack the same way, in
+  every list of dates.
+- **ewe Files' window loads 223 KB of script, not 2 MB**: pdf.js (+ its worker) and highlight.js,
+  marked, DOMPurify are chunks fetched on first use (`pdfthumb.ts`, `lazy()` in viewer.tsx).
+- tao asks the portal for the colour scheme unless the builder gets a theme: it gets the tokens'
+  variant.
+
+What is left is GTK's own start (~105 ms to `setup`) and WebKit's (~165 ms from the window to
+the page's script).
 
 ## ewe Viewer (`apps/viewer`)
 
@@ -170,11 +235,18 @@ src/views/SheetView.tsx     SheetJS for xlsx/xlsm/xls/ods (dense sheets), lib/cs
 src/views/ImageView.tsx     fit / actual / zoom at the cursor / drag, pinch (gesture events), rotate,
                             flip, slideshow, ←/→ through the folder (folder_images), info panel (stat +
                             EXIF rows from lib/exif.ts), copy (wl-copy), set as wallpaper (ewe-conf),
-                            move to Trash (GIO), Open with…; HEIC/HEIF through the core's /picture
+                            move to Trash (GIO), Open with…; HEIC/HEIF through the core's /picture.
+                            `current` is the picture asked for, `shown` the one on the stage: the next
+                            one is decoded off the page and swapped in with its size (no flash at 100 %,
+                            no easing on a swap or while the window resizes); the tab, the title and
+                            the app menu follow it (`onPath`). A wheel notch is a zoom step, a touchpad
+                            swipe zooms as far as it travels (lib/wheel.ts)
 src/views/OtherView.tsx     ODT / PPTX / DOC…: type, size, GIO apps, "Open with the default app"
 src/views/Start.tsx         recent documents from recently-used.xbel (recent_documents), thumbnails from
                             the core's cache for pictures and pdf.js' first page for PDFs
-src/lib/{kinds,memory,csv,exif,flags}.ts   pure, unit-tested (vitest in apps/viewer)
+src/lib/{kinds,memory,csv,exif,flags,wheel}.ts   pure, unit-tested (vitest in apps/viewer);
+                            wheel.ts: `isNotch`, `wheelStepper` (one step per notch or per stretch of
+                            a swipe; `once` = one page per swipe), `smoothZoomFactor`
 src/lib/store.ts            positions.json under $XDG_DATA_HOME/ewe-viewer (store_read/store_write, debounced,
                             flushed on pagehide); small UI settings in localStorage
 src/lib/pdfjs.ts            loads pdf.js once: worker bundled by Vite (?url), standard_fonts / cmaps / wasm /
@@ -191,15 +263,19 @@ src-tauri/src/comics.rs     natural order (tested), page filter, zip in-process;
 
 The PDF toolbar condenses by its width: icon-only below 760 (the page modes become one button
 with a menu, the zoom shows only its percent, "Save a copy" an icon), and below 560 Find and the
-page modes move into ⋯. The image info panel takes at most half the window.
+page modes move into ⋯. The picture toolbar: below 640 Previous/Next (the arrows over the
+picture and ← → stay), Fit, Rotate and Slideshow leave it (the last three join ⋯) and the zoom
+shows only its percent; below 430 the − / + buttons and the meta line go too. The image info
+panel takes at most half the window, the PDF/book sidebar at most 45 %.
 
 Launch flags (all `--key=value`, for the paths on the same command line): `--page=N`, `--find=text`,
 `--sidebar=pages|contents`, `--mode=continuous|single|two`, `--zoom=page-width|page-fit|1.5`,
 `--night`, `--present`, `--fill=field=value` (PDF); `--toc`, `--flow=paged|scrolled`,
 `--theme=auto|light|sepia|dark` (books); `--spread` (comics); `--source` (Markdown); `--sheet=N`
 (spreadsheets); `--info`, `--slideshow`, `--zoom=200` (pictures); `--encoding=windows-1251` (text:
-read as that, not remembered), `--encoding-menu` (opens the encoding menu). They are also how `scripts/shot.sh`
-reaches every state headless.
+read as that, not remembered), `--encoding-menu` (opens the encoding menu); `--open-with` (the
+Open with card for the first file). They are also how `scripts/shot.sh` reaches every state
+headless.
 
 ## ewe Files (`apps/files`, binary `ewe-files-app`)
 
@@ -282,6 +358,15 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   swallows the DOM `drop`, so drops are handled from `onDragDropEvent` by hit-testing
   `[data-drop]` under the pointer (DOM `dragover` still highlights, DOM `drop` is the fallback,
   deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
+- **The pane, small print** (0.4.1): search results are not a folder — `reload()` (F5, an
+  `fs-changed`, an undo) leaves them, `forget(paths)` drops rows that were trashed, and Rename /
+  New folder are off there. Shift+arrows extend from the anchor (a separate `cursor`). The rename
+  field's value is set once (a reload must not put the old name back) and New folder / New file
+  start the rename when the listing is in (`reload()` returns its promise). Moving to the Trash
+  shows ONE toast with Undo, and its listener is there before the job starts. PDF thumbnails are
+  drawn one at a time, newest first (pdf.js runs on the page's thread here); the quick look draws
+  a PDF's pages as they come near. The folder watcher speaks at least once a second during a long
+  burst of changes (a download being written).
 - Files open with the GIO default (`launch_with(null)`), archives in the archive dialog, programs
   and AppImages through the Run dialog (Komble install offered).
 - **eep cards** (`<Name>.eep`, `../eep/docs/CARD.md`): the card in `~/Applications` IS the app
@@ -498,6 +583,36 @@ WebProcess 150 + network 21 + glycin 7), music library idle ≈ 545 MB RSS / 234
 playing ≈ 266 MB PSS.
 
 ## Gotchas already hit
+
+- **Every notify watcher must drop `EventKind::Access(_)`** — its inotify mask includes OPEN and
+  CLOSE_NOWRITE, so the watcher's own read of the file is an event. `theme.rs` did not: one read
+  of theme-tokens.json started a loop, `theme-changed` five times a second for as long as any of
+  the three apps ran, and the page re-set every CSS variable on `:root` each time (0.4.0 and
+  before). `followTheme` also ignores tokens equal to the last ones.
+- **`on(() => props.x.y, fn)` runs `fn` on every re-evaluation, not only when the value changes.**
+  Wrap the source in `createMemo` when the callback must follow the VALUE: the pane's
+  "hidden toggled" effect listed every folder twice (and every pane on a zoom step), and a tile's
+  thumbnail state reset to "loading" on each reload while its `<img>` (same src) never fired
+  `load` again.
+- **A ResizeObserver callback that changes layout in the same frame** logs "ResizeObserver loop
+  completed with undelivered notifications" (an `error` event). Set the state in the next
+  animation frame. A hidden tab (`display: none`) is 0 × 0: ignore that size, it is not a resize
+  (pdf.js computed a negative scale and threw every page away; a picture was "Fit · 0%").
+- **Locks in ops.rs: never a job's `progress` while `state` is held** (`list()` clones the jobs
+  out first). A job that finished while the page asked for the list deadlocked the app.
+- **A copy onto itself** (paste into the same folder) gets a new name without a question;
+  `place()` never removes the file it is about to copy, and a folder is never copied into
+  itself. A merge moves child by child (what was skipped stays in the source). A stopped copy
+  removes its half file.
+- **`<For>` keys by identity**: a list fed fresh objects many times a second (operations) rebuilds
+  its rows, and a button pressed between two updates is gone before the click. `<Index>` there.
+- **A `Dialog` keeps its keys** (`stopPropagation`): window-level shortcuts are not for a covered
+  page. `Menu` closes on a press outside any `.menu` (capture phase) and scrolls when taller than
+  the window. A clicked tab does not take the keyboard (`mousedown` prevented), so ← → and Delete
+  stay with the document. A `Field` with `autofocus` keeps the focus (the dialog used to move it
+  to the primary button a microtask later).
+- **bsdtar takes a member name as a pattern**: `[Group] Title/001.jpg` matched nothing.
+  `glob_escape` in comics.rs.
 
 - `tauri build` refuses an npm `@tauri-apps/api` whose major.minor differs from the `tauri`
   crate. The crate is `tauri = "2"` (resolves 2.12.x today) and every package.json pins

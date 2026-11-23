@@ -19,8 +19,19 @@ export { ProgressBar } from './components/ProgressBar'
 export { Tabs, type TabItem } from './components/Tabs'
 export { Toolbar, IconButton, Button } from './components/Toolbar'
 export { Field } from './components/Field'
+export { AppRows, OpenWith, type OpenWithProps } from './components/OpenWith'
 export { parseEweTokens, cssColor } from './theme/parse'
 export { applyTheme, type ThemeMode } from './theme/apply'
 export { followTheme, fetchTheme } from './theme/follow'
-export { getLaunch, onLaunch, getMediaServer, getAppVersion, addRecent } from './app/bridge'
+export {
+  boot,
+  getLaunch,
+  onLaunch,
+  getMediaServer,
+  getAppVersion,
+  addRecent,
+  trace,
+  type Boot,
+} from './app/bridge'
 export { applyShotSize } from './app/shot'
+export { fontsReady } from './app/fonts'

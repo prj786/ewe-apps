@@ -13,6 +13,7 @@ import {
   on,
   onCleanup,
   onMount,
+  untrack,
   type Accessor,
   type JSX,
 } from 'solid-js'
@@ -44,7 +45,7 @@ import {
   type SortKey,
   type TrashEntry,
 } from '@ewe/shared'
-import { Icon, IconButton, type IconName, type MenuEntry } from '@ewe/ui'
+import { Icon, IconButton, trace, type IconName, type MenuEntry } from '@ewe/ui'
 import { api, errorText, on as onEvent, windowLabel } from './api'
 import type { ViewPrefs } from './prefs'
 import { SYNC_ICON, syncTitle } from './places'
@@ -122,7 +123,10 @@ export interface PaneHandle {
   back(): void
   forward(): void
   up(): void
-  reload(): void
+  /** list the folder again (resolves when it is in); search results stay as they are */
+  reload(): Promise<void>
+  /** search results: drop rows that are gone (trashed, deleted, moved away) */
+  forget(paths: readonly string[]): void
   path(): string
   mode(): PaneMode
   listing(): AppListing | null
@@ -203,7 +207,14 @@ export function Pane(props: PaneProps): JSX.Element {
   const [error, setError] = createSignal<string | null>(null)
   const [loading, setLoading] = createSignal(false)
   const [selected, setSelected] = createSignal<ReadonlySet<string>>(new Set())
-  const [anchor, setAnchor] = createSignal<string | null>(null)
+  // The anchor is where a Shift range starts (the last plain click or arrow); the
+  // cursor is where the arrows are. They part only while Shift+arrows extend a range.
+  const [anchor, setAnchorOnly] = createSignal<string | null>(null)
+  const [cursor, setCursor] = createSignal<string | null>(null)
+  const setAnchor = (p: string | null) => {
+    setAnchorOnly(p)
+    setCursor(p)
+  }
   const [renaming, setRenaming] = createSignal<string | null>(null)
   const [filter, setFilter] = createSignal('')
   const [editingPath, setEditingPath] = createSignal(false)
@@ -402,6 +413,8 @@ export function Pane(props: PaneProps): JSX.Element {
       setError(null)
       setListing(result)
       setPath(result.path)
+      trace('listed')
+      requestAnimationFrame(() => trace('painted'))
       void api.watch(props.id, result.path)
     }
     const next = path()
@@ -430,12 +443,18 @@ export function Pane(props: PaneProps): JSX.Element {
       const alive = new Set(rows().map((e) => e.path))
       setSelected(new Set([...selected()].filter((p) => alive.has(p))))
     } else setSelected(new Set<string>())
+    // a rename whose row is no longer there would keep every key of the pane dead
+    const editing = renaming()
+    if (editing !== null && !rows().some((r) => r.path === editing)) setRenaming(null)
     props.onPath(next, titleFor(next))
   }
 
   const go = (p: string, options: { push?: boolean; select?: string[] | undefined } = {}) =>
     void load(p, { push: options.push ?? true, select: options.select })
-  const reload = () => void load(path(), { keep: true })
+  // Search results are not a folder: listing it again (F5, a file that changed in it,
+  // an undo) used to replace the results with the plain folder, silently.
+  const reload = (): Promise<void> =>
+    search() !== null ? Promise.resolve() : load(path(), { keep: true })
 
   const stepHistory = (delta: number) => {
     const i = histIndex() + delta
@@ -450,7 +469,8 @@ export function Pane(props: PaneProps): JSX.Element {
   const moveSelection = (delta: number, shift: boolean) => {
     const list = rows()
     if (list.length === 0) return
-    const current = list.findIndex((x) => x.path === anchor())
+    const at = cursor() ?? anchor()
+    const current = list.findIndex((x) => x.path === at)
     const next =
       current === -1
         ? delta > 0
@@ -459,10 +479,13 @@ export function Pane(props: PaneProps): JSX.Element {
         : Math.min(Math.max(0, current + delta), list.length - 1)
     const entry = list[next]
     if (entry === undefined) return
-    if (shift && current !== -1) {
-      const [from, to] = current < next ? [current, next] : [next, current]
+    const start = list.findIndex((x) => x.path === anchor())
+    if (shift && start !== -1) {
+      // from where the range began to where the arrows are now: the anchor stays
+      // (it used to follow, so two Shift+Downs selected rows 3–4, not 2–4)
+      const [from, to] = start < next ? [start, next] : [next, start]
       setSelected(new Set(list.slice(from, to + 1).map((x) => x.path)))
-      setAnchor(entry.path)
+      setCursor(entry.path)
     } else selectOnly(entry.path)
     reveal(entry.path)
   }
@@ -477,6 +500,13 @@ export function Pane(props: PaneProps): JSX.Element {
       if (parent !== null) go(parent, { select: [path()] })
     },
     reload,
+    forget: (paths) => {
+      const s = search()
+      if (s === null || paths.length === 0) return
+      const gone = new Set(paths)
+      setSearch({ ...s, items: s.items.filter((r) => !gone.has(r.path)) })
+      setSelected(new Set([...selected()].filter((p) => !gone.has(p))))
+    },
     path,
     mode,
     listing,
@@ -550,8 +580,7 @@ export function Pane(props: PaneProps): JSX.Element {
     props.onReady(handle)
     void load(props.initialPath, { push: true, select: props.initialSelect })
     const offChanged = onEvent('fs-changed', (e) => {
-      if (e.key === `${windowLabel()}/${props.id}` && e.path === path())
-        void load(path(), { keep: true })
+      if (e.key === `${windowLabel()}/${props.id}` && e.path === path()) void reload()
     })
     const offSearch = onEvent('search-results', (r) => {
       const s = search()
@@ -567,10 +596,14 @@ export function Pane(props: PaneProps): JSX.Element {
     })
   })
 
-  // hidden toggled: reload
+  // hidden toggled: reload. A memo, so that only a change of the VALUE lists again:
+  // `prefs()` is read anew on every path, zoom, sort or view change, and `on()` ran
+  // this for each of them — every folder was listed and drawn twice, and a zoom step
+  // listed every open pane again.
+  const hidden = createMemo(() => prefs().hidden)
   createEffect(
     on(
-      () => prefs().hidden,
+      hidden,
       () => {
         if (path() !== '' && mode() === 'folder') void load(path(), { keep: true })
       },
@@ -700,20 +733,22 @@ export function Pane(props: PaneProps): JSX.Element {
     const kind = () => fileKind(p.entry)
     const [thumb, setThumb] = createSignal<'loading' | 'ok' | 'failed'>('loading')
     const [pdf, setPdf] = createSignal<string | null>(null)
+    // A memo: every reload hands this slot a new object for the same file, and the
+    // state must only start over when the FILE changes. It used to reset to
+    // "loading" on each reload while the <img> (same src) never fired `load` again:
+    // the tile lost its frame and an app's icon showed the glyph behind it.
+    const entryPath = createMemo(() => p.entry.path)
     createEffect(
-      on(
-        () => p.entry.path,
-        () => {
-          setThumb('loading')
-          setPdf(null)
-          if (fileKind(p.entry) === 'pdf' && p.grid)
-            void ctx()
-              .pdfThumb(p.entry.path)
-              .then((url) => {
-                if (url !== null) setPdf(url)
-              })
-        },
-      ),
+      on(entryPath, (path) => {
+        setThumb('loading')
+        setPdf(null)
+        if (fileKind(p.entry) === 'pdf' && p.grid)
+          void ctx()
+            .pdfThumb(path)
+            .then((url) => {
+              if (url !== null && entryPath() === path) setPdf(url)
+            })
+      }),
     )
     const wantsThumb = () =>
       (THUMBNAIL_KINDS.has(kind()) || kind() === 'audio') &&
@@ -854,16 +889,19 @@ export function Pane(props: PaneProps): JSX.Element {
   const NameField = (p: { entry: Row }): JSX.Element => (
     <input
       class="fm-rename"
-      value={p.entry.app === undefined ? p.entry.name : cardStem(p.entry.name)}
       spellcheck={false}
       aria-label="New name"
-      ref={(el) =>
+      ref={(el) => {
+        // set once, not bound: a reload replaces the row's object, and a bound value
+        // put the old name back over what was being typed ("New folderusic")
+        const entry = untrack(() => p.entry)
+        el.value = entry.app === undefined ? entry.name : cardStem(entry.name)
         queueMicrotask(() => {
           el.focus()
-          const dot = p.entry.dir || p.entry.app !== undefined ? -1 : p.entry.name.lastIndexOf('.')
+          const dot = entry.dir || entry.app !== undefined ? -1 : entry.name.lastIndexOf('.')
           el.setSelectionRange(0, dot > 0 ? dot : el.value.length)
         })
-      }
+      }}
       onKeyDown={(e) => {
         e.stopPropagation()
         if (e.key === 'Enter') {

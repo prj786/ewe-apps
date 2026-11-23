@@ -103,12 +103,16 @@ pub fn open_window(app: &AppHandle, launch: Launch) -> tauri::Result<String> {
     let n = state.next_window.fetch_add(1, Ordering::SeqCst);
     let label = format!("win-{n}");
     let shape = install_shape(&launch);
-    state.launches.lock().unwrap().insert(label.clone(), launch);
+    state
+        .launches
+        .lock()
+        .unwrap()
+        .insert(label.clone(), launch.clone());
     let win = match shape {
-        Some(shape) => ewe_app_core::open_shaped(app, &label, &shape)?,
+        Some(shape) => ewe_app_core::open_shaped(app, &label, &shape, Some(&launch))?,
         None => {
             let spec: State<AppSpec> = app.state();
-            ewe_app_core::open_window(app, &spec, &label)?
+            ewe_app_core::open_window(app, &spec, &label, Some(&launch))?
         }
     };
     let _ = win.set_focus();

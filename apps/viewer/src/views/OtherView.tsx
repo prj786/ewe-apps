@@ -1,10 +1,10 @@
 // A clear page for what ewe Viewer cannot show itself (ODT, PPTX, DOC, RTF…): the type,
 // the size, and the apps GIO knows for it — LibreOffice is in the list when installed.
 
-import { For, Show, createResource, type JSX } from 'solid-js'
+import { Show, createResource, createSignal, type JSX } from 'solid-js'
 import { invoke } from '@tauri-apps/api/core'
 import { formatBytes, type AppInfo, type MimeInfo } from '@ewe/shared'
-import { Button, EmptyState, Icon, toast } from '@ewe/ui'
+import { AppRows, Button, EmptyState, toast } from '@ewe/ui'
 import { fileStat } from '../lib/bridge'
 import { baseName } from '../lib/kinds'
 import type { ViewProps } from './types'
@@ -24,6 +24,8 @@ export function OtherView(props: ViewProps): JSX.Element {
       return { mime, stat, apps }
     },
   )
+
+  const [chosen, setChosen] = createSignal<string | null>(null)
 
   const launch = async (app: AppInfo | null) => {
     try {
@@ -57,23 +59,24 @@ export function OtherView(props: ViewProps): JSX.Element {
             >
               <div class="ov-apps">
                 <span class="ov-apps-title">Open with</span>
-                <ul class="app-list">
-                  <For each={i().apps}>
-                    {(app) => (
-                      <li>
-                        <button type="button" class="app-list-row" onClick={() => void launch(app)}>
-                          <Icon name="external-link" />
-                          <span class="app-list-name">{app.name}</span>
-                          <Show when={app.default}>
-                            <span class="app-list-hint">Default</span>
-                          </Show>
-                        </button>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-                <Button kind="primary" icon="external-link" onClick={() => void launch(null)}>
-                  Open with the default app
+                <AppRows
+                  apps={i().apps}
+                  selected={chosen() ?? i().apps[0]?.id ?? null}
+                  server={props.server}
+                  label="Apps that open this file"
+                  onSelect={setChosen}
+                  onTake={(id) => void launch(i().apps.find((a) => a.id === id) ?? null)}
+                />
+                <Button
+                  kind="primary"
+                  icon="external-link"
+                  onClick={() =>
+                    void launch(
+                      i().apps.find((a) => a.id === (chosen() ?? i().apps[0]?.id)) ?? null,
+                    )
+                  }
+                >
+                  Open
                 </Button>
               </div>
             </Show>

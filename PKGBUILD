@@ -14,8 +14,8 @@ pkgname=ewe-apps
 # extracts to <repo>-<tag without the leading v>, so the source URL and
 # the directory below follow _tag, never pkgver. The release workflow
 # rewrites both.
-_tag=v0.4.0-beta
-pkgver=0.4.0beta
+_tag=v0.4.1-beta
+pkgver=0.4.1beta
 pkgrel=1
 pkgdesc="ewe Files, ewe Player and ewe Viewer — files, video + music, documents + pictures on the ewe desktop"
 arch=('x86_64' 'aarch64')

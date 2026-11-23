@@ -66,9 +66,15 @@ pub async fn add_recent(
     .map_err(|e| e.to_string())?
 }
 
+/// Off the main thread: it reads the file's first bytes, and on a network folder that
+/// is a round trip per selected file (the preview pane asks for each).
 #[tauri::command]
-pub fn mime_of(path: String) -> MimeInfo {
-    crate::mime::content_type(std::path::Path::new(&path))
+pub async fn mime_of(path: String) -> Result<MimeInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mime::content_type(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Apps for a content type (default first); `all` lists every installed app instead.
@@ -95,4 +101,10 @@ pub fn set_default_app(desktop_id: String, content_type: String) -> Result<(), S
 #[tauri::command]
 pub fn launch_with(desktop_id: Option<String>, paths: Vec<String>) -> Result<(), String> {
     crate::mime::launch(desktop_id.as_deref(), &paths)
+}
+
+/// A start-up mark from the page (see [`crate::trace`]): `at` is ms since the epoch.
+#[tauri::command]
+pub fn trace_mark(label: String, at: f64) {
+    crate::trace::mark_at(&label, at);
 }

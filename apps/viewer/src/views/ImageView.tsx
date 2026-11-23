@@ -6,6 +6,7 @@
 import {
   For,
   Show,
+  batch,
   createEffect,
   createMemo,
   createResource,
@@ -14,17 +15,19 @@ import {
   onCleanup,
   type JSX,
 } from 'solid-js'
-import { formatBytes, pictureUrl } from '@ewe/shared'
+import { comboKey, formatBytes, pictureUrl } from '@ewe/shared'
 import {
   Button,
   Dialog,
   EmptyState,
   IconButton,
   Menu,
+  OpenWith,
   Switch as Toggle,
   Toolbar,
   addRecent,
   toast,
+  trace,
   type MenuEntry,
 } from '@ewe/ui'
 import { invoke } from '@tauri-apps/api/core'
@@ -42,6 +45,7 @@ import { inTextInput, isMod, useKeys } from '../lib/keys'
 import { baseName, dirName } from '../lib/kinds'
 import { getSetting, setSetting } from '../lib/store'
 import { flagNumber, hasFlag } from '../lib/flags'
+import { isNotch, smoothZoomFactor, wheelStepper } from '../lib/wheel'
 import { percent, zoomStep, type ViewProps } from './types'
 
 const MIN_ZOOM = 0.05
@@ -56,15 +60,26 @@ export function ImageView(props: ViewProps): JSX.Element {
   const [rotation, setRotation] = createSignal(0)
   const [flipH, setFlipH] = createSignal(false)
   const [flipV, setFlipV] = createSignal(false)
-  const [natural, setNatural] = createSignal<{ w: number; h: number } | null>(null)
+  // `current` is the picture asked for; `shown` the one on the stage. A picture goes
+  // on the stage when it is decoded, together with its size — until then the last one
+  // stays, at its own scale. (The size used to be dropped the moment the next picture
+  // was asked for: the old one jumped to 100 % and the new one eased back to fit.)
+  const [shown, setShown] = createSignal<{ path: string; w: number; h: number } | null>(null)
+  const natural = () => shown()
+  const [loading, setLoading] = createSignal(false)
+  const [swapping, setSwapping] = createSignal(false)
   const [failed, setFailed] = createSignal(false)
+  const [barWidth, setBarWidth] = createSignal(1280)
+  // the toolbar gives up buttons as the window narrows (a tile on a tiling desktop)
+  const compact = () => barWidth() < 640
+  const tiny = () => barWidth() < 430
   const flags = () => props.flags ?? []
   const [info, setInfo] = createSignal(hasFlag(flags(), 'info') || getSetting('imageInfo', false))
   const [slideshow, setSlideshow] = createSignal(hasFlag(flags(), 'slideshow'))
   const [slideSeconds, setSlideSeconds] = createSignal(getSetting('slideSeconds', 4))
   const [menuAt, setMenuAt] = createSignal<{ x: number; y: number } | null>(null)
   const [confirmTrash, setConfirmTrash] = createSignal(false)
-  const [openWith, setOpenWith] = createSignal<AppInfo[] | null>(null)
+  const [openWith, setOpenWith] = createSignal<{ apps: AppInfo[]; all?: AppInfo[] } | null>(null)
   const [dragging, setDragging] = createSignal(false)
   const [checker, setChecker] = createSignal(getSetting('imageChecker', false))
 
@@ -94,21 +109,56 @@ export function ImageView(props: ViewProps): JSX.Element {
     ),
   )
 
+  let slow: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(slow))
   createEffect(
     on(current, (p) => {
       setFailed(false)
-      setNatural(null)
-      setFit(true)
-      setZoom(1)
-      setPan({ x: 0, y: 0 })
-      setRotation(0)
-      setFlipH(false)
-      setFlipV(false)
+      props.onPath?.(p)
+      props.onTitle?.(baseName(p))
       void addRecent(p).catch(() => undefined)
+      // only a picture that takes a moment (a phone picture being converted, a network
+      // folder) says so
+      clearTimeout(slow)
+      slow = setTimeout(() => setLoading(current() === p && shown()?.path !== p), 250)
+      const next = new Image()
+      next.decoding = 'async'
+      const show = () => {
+        if (current() !== p) return
+        clearTimeout(slow)
+        batch(() => {
+          setLoading(false)
+          setSwapping(true)
+          setShown({ path: p, w: next.naturalWidth, h: next.naturalHeight })
+          setFit(true)
+          setZoom(1)
+          setPan({ x: 0, y: 0 })
+          setRotation(0)
+          setFlipH(false)
+          setFlipV(false)
+          const z = flagNumber(flags(), 'zoom')
+          if (z !== null && z > 0 && p === props.path) {
+            setFit(false)
+            setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z / 100)))
+          }
+        })
+        trace('ready')
+        // the new picture takes its place at once; easing is for zooming
+        requestAnimationFrame(() => requestAnimationFrame(() => setSwapping(false)))
+      }
+      next.onload = () => void next.decode().then(show, show)
+      next.onerror = () => {
+        if (current() !== p) return
+        clearTimeout(slow)
+        setLoading(false)
+        setShown(null)
+        setFailed(true)
+      }
+      next.src = pictureUrl(props.server, p)
       // warm the neighbours
       for (const delta of [1, -1]) {
-        const next = siblings()[(index() + delta + count()) % count()]
-        if (next !== undefined && next !== p) new Image().src = pictureUrl(props.server, next)
+        const near = siblings()[(index() + delta + count()) % count()]
+        if (near !== undefined && near !== p) new Image().src = pictureUrl(props.server, near)
       }
     }),
   )
@@ -120,23 +170,24 @@ export function ImageView(props: ViewProps): JSX.Element {
     if (next !== undefined) setCurrent(next)
   }
 
+  // The stage's size, kept by its ResizeObserver. A hidden tab's stage is 0 × 0: the
+  // last real size stays, so a picture that loads behind another tab is fitted to
+  // the room it will have, not to nothing ("Fit · 0%").
+  const [stageSize, setStageSize] = createSignal({ w: 0, h: 0 })
   /** The scale that fits the (rotated) picture into the stage. */
   const fitScale = createMemo(() => {
     const nat = natural()
-    if (nat === null || stage === undefined) return 1
+    const size = stageSize()
+    if (nat === null || size.w === 0 || size.h === 0) return 1
     const rotated = rotation() % 180 !== 0
     const w = rotated ? nat.h : nat.w
     const h = rotated ? nat.w : nat.h
     const pad = 2 * 16
-    const sw = Math.max(1, stage.clientWidth - pad)
-    const sh = Math.max(1, stage.clientHeight - pad)
+    const sw = Math.max(1, size.w - pad)
+    const sh = Math.max(1, size.h - pad)
     return Math.min(1, sw / w, sh / h)
   })
-  const [stageSize, setStageSize] = createSignal(0)
-  const effectiveScale = () => {
-    void stageSize()
-    return fit() ? fitScale() : zoom()
-  }
+  const effectiveScale = () => (fit() ? fitScale() : zoom())
 
   const setScaleAt = (next: number, cx?: number, cy?: number) => {
     const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next))
@@ -178,8 +229,34 @@ export function ImageView(props: ViewProps): JSX.Element {
   createEffect(() => {
     if (stage === undefined) return
     const el = stage
-    const ro = new ResizeObserver(() => setStageSize((n) => n + 1))
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const measure = () => {
+      if (el.clientWidth === 0 || el.clientHeight === 0) return
+      const old = stageSize()
+      if (old.w === el.clientWidth && old.h === el.clientHeight) return
+      // while the window is being resized the picture follows frame by frame; with
+      // the zoom's easing it trailed behind the window
+      if (old.w !== 0) {
+        setSwapping(true)
+        clearTimeout(settle)
+        settle = setTimeout(() => setSwapping(false), 150)
+      }
+      setStageSize({ w: el.clientWidth, h: el.clientHeight })
+    }
+    // measured a frame later, not inside the observer's callback: what it changes
+    // (the toolbar's "Fit · 20%") is laid out in the next frame, not in a second
+    // pass of this one ("ResizeObserver loop" in the log)
+    let frame = 0
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    })
+    measure()
     ro.observe(el)
+    onCleanup(() => {
+      clearTimeout(settle)
+      cancelAnimationFrame(frame)
+    })
     el.addEventListener('gesturestart', onGestureStart)
     el.addEventListener('gesturechange', onGestureChange)
     onCleanup(() => {
@@ -190,13 +267,17 @@ export function ImageView(props: ViewProps): JSX.Element {
   })
 
   // wheel: zoom (plain wheel too — it is a picture viewer), pinch via gesture events
+  const stepPicture = wheelStepper({ once: true })
   const onWheel = (e: WheelEvent) => {
     e.preventDefault()
     if (e.shiftKey && !e.ctrlKey) {
-      step(e.deltaY > 0 ? 1 : -1)
+      const dir = stepPicture(e)
+      if (dir !== 0) step(dir)
       return
     }
-    zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY)
+    // a mouse wheel goes step by step; a touchpad swipe zooms as far as it travels
+    if (isNotch(e)) zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY)
+    else setScaleAt(effectiveScale() * smoothZoomFactor(e.deltaY), e.clientX, e.clientY)
   }
   let gestureBase = 1
   const onGestureStart = (e: Event) => {
@@ -275,12 +356,21 @@ export function ImageView(props: ViewProps): JSX.Element {
     const apps = await invoke<AppInfo[]>('apps_for', { contentType: type, all: false }).catch(
       (): AppInfo[] => [],
     )
-    setOpenWith(apps)
+    setOpenWith({ apps })
   }
 
-  const launch = async (app: AppInfo | null) => {
+  const showAllApps = () => {
+    void invoke<AppInfo[]>('apps_for', { contentType: '', all: true })
+      .catch((): AppInfo[] => [])
+      .then((all) => setOpenWith((o) => (o === null ? null : { ...o, all })))
+  }
+
+  const launch = async (app: AppInfo, always: boolean) => {
     try {
-      await invoke<null>('launch_with', { desktopId: app?.id ?? null, paths: [current()] })
+      const type = mime()?.type
+      if (always && type !== undefined)
+        await invoke<null>('set_default_app', { desktopId: app.id, contentType: type })
+      await invoke<null>('launch_with', { desktopId: app.id, paths: [current()] })
       setOpenWith(null)
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), { kind: 'danger' })
@@ -292,7 +382,7 @@ export function ImageView(props: ViewProps): JSX.Element {
     (e) => {
       if (confirmTrash() || openWith() !== null) return false
       if (isMod(e)) {
-        switch (e.key) {
+        switch (comboKey(e)) {
           case '=':
           case '+':
             zoomBy(1)
@@ -317,7 +407,7 @@ export function ImageView(props: ViewProps): JSX.Element {
         }
       }
       if (inTextInput(e)) return false
-      switch (e.key) {
+      switch (comboKey(e)) {
         case 'ArrowRight':
         case 'PageDown':
         case 'n':
@@ -389,7 +479,41 @@ export function ImageView(props: ViewProps): JSX.Element {
     })
   }
 
+  /** what the toolbar no longer has room for */
+  const foldedItems = (): MenuEntry[] =>
+    compact()
+      ? [
+          {
+            type: 'item',
+            id: 'fit',
+            label: fit() ? 'Actual size' : 'Fit to window',
+            icon: 'scan',
+            hint: fit() ? '1' : 'F',
+            run: () => (fit() ? toActual() : toFit()),
+          },
+          {
+            type: 'item',
+            id: 'rotate',
+            label: 'Rotate',
+            icon: 'rotate-cw',
+            hint: 'R',
+            run: () => setRotation((r) => (r + 90) % 360),
+          },
+          {
+            type: 'item',
+            id: 'slideshow',
+            label: slideshow() ? 'Stop the slideshow' : 'Slideshow',
+            icon: slideshow() ? 'pause' : 'play',
+            hint: 'S',
+            disabled: count() < 2,
+            run: () => setSlideshow((v) => !v),
+          },
+          { type: 'separator' },
+        ]
+      : []
+
   const moreItems = (): MenuEntry[] => [
+    ...foldedItems(),
     {
       type: 'item',
       id: 'copy',
@@ -487,29 +611,54 @@ export function ImageView(props: ViewProps): JSX.Element {
   }
 
   return (
-    <div class="iv" classList={{ 'iv--slideshow': slideshow() }}>
+    <div
+      class="iv"
+      classList={{ 'iv--slideshow': slideshow(), 'iv--compact': compact(), 'iv--tiny': tiny() }}
+      ref={(el) => {
+        let frame = 0
+        const ro = new ResizeObserver(() => {
+          cancelAnimationFrame(frame)
+          frame = requestAnimationFrame(() => {
+            if (el.clientWidth > 0) setBarWidth(el.clientWidth)
+          })
+        })
+        ro.observe(el)
+        onCleanup(() => {
+          ro.disconnect()
+          cancelAnimationFrame(frame)
+        })
+      }}
+    >
       <Toolbar label="Picture" class="view-toolbar">
         <span class="view-title">
           <span class="view-name" dir="auto">
             {name()}
           </span>
-          <span class="view-meta">{metaLine()}</span>
+          <Show when={!tiny()}>
+            <span class="view-meta">{metaLine()}</span>
+          </Show>
         </span>
         <span class="toolbar-spacer" />
-        <IconButton
-          icon="chevron-left"
-          label="Previous picture (←)"
-          disabled={count() < 2}
-          onClick={() => step(-1)}
-        />
-        <IconButton
-          icon="chevron-right"
-          label="Next picture (→)"
-          disabled={count() < 2}
-          onClick={() => step(1)}
-        />
-        <span class="toolbar-divider" />
-        <IconButton icon="zoom-out" label="Zoom out (−)" onClick={() => zoomBy(-1)} />
+        {/* narrow: the arrows over the picture and ← → do the stepping, Fit, Rotate and
+            Slideshow are in ⋯ */}
+        <Show when={!compact()}>
+          <IconButton
+            icon="chevron-left"
+            label="Previous picture (←)"
+            disabled={count() < 2}
+            onClick={() => step(-1)}
+          />
+          <IconButton
+            icon="chevron-right"
+            label="Next picture (→)"
+            disabled={count() < 2}
+            onClick={() => step(1)}
+          />
+          <span class="toolbar-divider" />
+        </Show>
+        <Show when={!tiny()}>
+          <IconButton icon="zoom-out" label="Zoom out (−)" onClick={() => zoomBy(-1)} />
+        </Show>
         <button
           type="button"
           class="btn btn--ghost btn--sm iv-zoom"
@@ -517,23 +666,27 @@ export function ImageView(props: ViewProps): JSX.Element {
           onClick={() => (fit() ? toActual() : toFit())}
           data-tooltip={fit() ? 'Actual size (1)' : 'Fit (F)'}
         >
-          {fit() ? `Fit · ${percent(effectiveScale())}` : percent(effectiveScale())}
+          {fit() && !compact() ? `Fit · ${percent(effectiveScale())}` : percent(effectiveScale())}
         </button>
-        <IconButton icon="zoom-in" label="Zoom in (+)" onClick={() => zoomBy(1)} />
-        <IconButton icon="scan" label="Fit to window (F)" active={fit()} onClick={toFit} />
-        <span class="toolbar-divider" />
-        <IconButton
-          icon="rotate-cw"
-          label="Rotate (R)"
-          onClick={() => setRotation((r) => (r + 90) % 360)}
-        />
-        <IconButton
-          icon={slideshow() ? 'pause' : 'play'}
-          label={slideshow() ? 'Stop the slideshow (S)' : 'Slideshow (S)'}
-          active={slideshow()}
-          disabled={count() < 2}
-          onClick={() => setSlideshow((v) => !v)}
-        />
+        <Show when={!tiny()}>
+          <IconButton icon="zoom-in" label="Zoom in (+)" onClick={() => zoomBy(1)} />
+        </Show>
+        <Show when={!compact()}>
+          <IconButton icon="scan" label="Fit to window (F)" active={fit()} onClick={toFit} />
+          <span class="toolbar-divider" />
+          <IconButton
+            icon="rotate-cw"
+            label="Rotate (R)"
+            onClick={() => setRotation((r) => (r + 90) % 360)}
+          />
+          <IconButton
+            icon={slideshow() ? 'pause' : 'play'}
+            label={slideshow() ? 'Stop the slideshow (S)' : 'Slideshow (S)'}
+            active={slideshow()}
+            disabled={count() < 2}
+            onClick={() => setSlideshow((v) => !v)}
+          />
+        </Show>
         <IconButton icon="info" label="Info (I)" active={info()} onClick={toggleInfo} />
         <IconButton
           icon="ellipsis"
@@ -552,6 +705,7 @@ export function ImageView(props: ViewProps): JSX.Element {
             'iv-stage--checker': checker(),
             'iv-stage--drag': dragging(),
             'iv-stage--zoomed': !fit(),
+            'iv-stage--swap': swapping(),
           }}
           onWheel={onWheel}
           onPointerDown={onPointerDown}
@@ -579,20 +733,21 @@ export function ImageView(props: ViewProps): JSX.Element {
               </EmptyState>
             }
           >
-            <img
-              ref={img}
-              class="iv-image"
-              src={pictureUrl(props.server, current())}
-              alt={name()}
-              draggable={false}
-              style={{ transform: transform() }}
-              onLoad={(e) => {
-                setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
-                const z = flagNumber(flags(), 'zoom')
-                if (z !== null && z > 0 && current() === props.path) setScaleAt(z / 100)
-              }}
-              onError={() => setFailed(true)}
-            />
+            <Show when={shown()}>
+              {(picture) => (
+                <img
+                  ref={img}
+                  class="iv-image"
+                  src={pictureUrl(props.server, picture().path)}
+                  alt={baseName(picture().path)}
+                  draggable={false}
+                  style={{ transform: transform() }}
+                />
+              )}
+            </Show>
+          </Show>
+          <Show when={loading()}>
+            <span class="iv-loading" role="status" aria-label="Loading the picture" />
           </Show>
           <Show when={count() > 1 && !slideshow()}>
             <button class="iv-nav prev" aria-label="Previous" onClick={() => step(-1)}>
@@ -691,32 +846,17 @@ export function ImageView(props: ViewProps): JSX.Element {
           </>
         }
       />
-      <Dialog
+      <OpenWith
         open={openWith() !== null}
-        title="Open with"
-        description={name()}
+        subject={name()}
+        typeLabel={mime()?.description}
+        apps={openWith()?.apps}
+        allApps={openWith()?.all}
+        server={props.server}
+        onShowAll={showAllApps}
+        onOpen={(app, always) => void launch(app, always)}
         onClose={() => setOpenWith(null)}
-      >
-        <Show
-          when={(openWith() ?? []).length > 0}
-          fallback={<p class="dialog-desc">No other app on this machine opens this type.</p>}
-        >
-          <ul class="app-list">
-            <For each={openWith() ?? []}>
-              {(app) => (
-                <li>
-                  <button type="button" class="app-list-row" onClick={() => void launch(app)}>
-                    <span class="app-list-name">{app.name}</span>
-                    <Show when={app.default}>
-                      <span class="app-list-hint">Default</span>
-                    </Show>
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
-      </Dialog>
+      />
     </div>
   )
 }

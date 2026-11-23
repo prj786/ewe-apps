@@ -20,6 +20,8 @@ export interface AppInfo {
   name: string
   /** an icon name from the theme, or null */
   icon: string | null
+  /** that icon's file (SVG or PNG) in the icon theme: `rawUrl()` shows it */
+  iconPath?: string | null
   /** the Exec line, for display only */
   exec: string
   default: boolean

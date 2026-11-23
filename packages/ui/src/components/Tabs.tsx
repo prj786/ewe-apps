@@ -82,6 +82,12 @@ export function Tabs(props: {
             tabindex={tab.id === props.selected ? 0 : -1}
             data-tab={tab.id}
             title={tab.hint}
+            // a click selects the tab but leaves the keyboard with the document:
+            // focus on the strip gave it ←/→ and Delete (the next picture switched
+            // tabs, Delete closed one)
+            onMouseDown={(e) => {
+              if (e.button === 0) e.preventDefault()
+            }}
             onClick={() => props.onSelect(tab.id)}
             onAuxClick={(e) => {
               if (e.button === 1) props.onClose?.(tab.id)

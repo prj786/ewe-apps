@@ -32,7 +32,7 @@ describe('parseEweTokens', () => {
     expect(t.base['--font-size-md']).toBe('16.9px')
     expect(t.base['--line-height-md']).toBe('23.4px')
     expect(t.base['--font-sans']).toBe(
-      `"Geist", ${SCRIPT_FONTS.map((f) => `"${f}"`).join(', ')}, system-ui, sans-serif`,
+      `"Geist", "Noto Sans", ${SCRIPT_FONTS.map((f) => `"${f}"`).join(', ')}, system-ui, sans-serif`,
     )
     expect(t.base['--font-mono']).toBeUndefined()
     expect(t.base['--font-weight-medium']).toBe('500')
@@ -66,11 +66,29 @@ describe('withScriptFonts', () => {
     const stack = withScriptFonts('"Geist", "Noto Sans Georgian", system-ui, sans-serif')
     const families = stack.split(', ')
     expect(families[0]).toBe('"Geist"')
-    expect(families[1]).toBe('"Noto Sans Georgian"')
-    expect(families[2]).toBe('"Noto Sans Arabic UI"')
+    expect(families[1]).toBe('"Noto Sans"')
+    expect(families[2]).toBe('"Noto Sans Georgian"')
+    expect(families[3]).toBe('"Noto Sans Arabic UI"')
     expect(families.filter((f) => f.includes('Georgian'))).toHaveLength(1)
     expect(families.indexOf('"Noto Sans Hebrew"')).toBeLessThan(families.indexOf('system-ui'))
     expect(families.slice(-2)).toEqual(['system-ui', 'sans-serif'])
-    expect(withScriptFonts('Geist Mono')).toMatch(/^Geist Mono, "Noto Sans Arabic UI", /)
+  })
+
+  it('tries a Latin face second, so a missing space or symbol opens one font, not eighteen', () => {
+    expect(withScriptFonts('"Geist", sans-serif')).toMatch(
+      /^"Geist", "Noto Sans", "Noto Sans Arabic UI", /,
+    )
+    expect(withScriptFonts('Geist Mono')).toMatch(
+      /^Geist Mono, "Noto Sans Mono", "Noto Sans Arabic UI", /,
+    )
+    expect(withScriptFonts('"Geist Mono", monospace')).toMatch(/^"Geist Mono", "Noto Sans Mono", /)
+    // already there: not twice
+    expect(withScriptFonts('"Geist", "Noto Sans", sans-serif').split('"Noto Sans",')).toHaveLength(
+      2,
+    )
+    // a stack of generics only keeps its order
+    expect(withScriptFonts('system-ui, sans-serif')).toMatch(
+      /^"Noto Sans", "Noto Sans Arabic UI", .*system-ui, sans-serif$/,
+    )
   })
 })

@@ -7,6 +7,7 @@ import {
   Switch,
   createEffect,
   createSignal,
+  lazy,
   on,
   onCleanup,
   onMount,
@@ -14,8 +15,11 @@ import {
 } from 'solid-js'
 import { fileKind, formatBytes, type FsEntry, type TextFile } from '@ewe/shared'
 import { Icon, IconButton } from '@ewe/ui'
-import { PdfView } from './pdfview'
-import { TextView } from './textview'
+
+// pdf.js, highlight.js, marked and DOMPurify are 1.7 MB of script that only a look at a
+// PDF or a text file needs: each comes with its first use, not with every window.
+const PdfView = lazy(() => import('./pdfview').then((m) => ({ default: m.PdfView })))
+const TextView = lazy(() => import('./textview').then((m) => ({ default: m.TextView })))
 
 export interface ViewerProps {
   items: FsEntry[]

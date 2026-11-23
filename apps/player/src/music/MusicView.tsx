@@ -13,6 +13,7 @@ import {
   type JSX,
 } from 'solid-js'
 import {
+  comboKey,
   compareTracks,
   coverUrl,
   decodeFailureMessage,
@@ -272,7 +273,7 @@ export function MusicView(props: MusicViewProps): JSX.Element {
       const target = e.target as HTMLElement | null
       if (target?.tagName === 'INPUT') return
       if (e.ctrlKey || e.metaKey || e.altKey) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'f') search?.focus()
+        if ((e.ctrlKey || e.metaKey) && comboKey(e) === 'f') search?.focus()
         else return
       } else if (e.key === ' ' || e.key === 'k' || e.key === 'K') toggle()
       else if (e.key === 'ArrowRight') transport.seekBy(5)

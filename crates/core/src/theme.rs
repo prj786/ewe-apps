@@ -51,6 +51,13 @@ where
     let file_name = path.file_name()?.to_os_string();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
+        // notify's inotify mask includes OPEN and CLOSE_NOWRITE: our own read of the
+        // file below is an event too. Unfiltered, every read asked for the next one —
+        // `theme-changed` five times a second for as long as the app ran, and the
+        // page re-set every CSS variable each time.
+        if matches!(event.kind, notify::EventKind::Access(_)) {
+            return;
+        }
         let ours = event.paths.is_empty()
             || event
                 .paths
@@ -129,5 +136,29 @@ mod tests {
         let got = seen.lock().unwrap();
         assert!(!got.is_empty(), "no change seen");
         assert_eq!(got[0].as_ref().unwrap()["color"]["accent"], "#111111");
+    }
+
+    #[test]
+    fn reading_the_file_is_not_a_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(FILE_NAME);
+        std::fs::write(&p, r##"{"version":3,"color":{"accent":"#111111"}}"##).unwrap();
+        let seen = Arc::new(Mutex::new(0usize));
+        let sink = seen.clone();
+        let _w = watch(p.clone(), move |_| *sink.lock().unwrap() += 1).unwrap();
+        // what the page's `theme_tokens` and every new window do; the watcher's own
+        // read after a change is one more
+        for _ in 0..3 {
+            assert!(read(&p).is_some());
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        std::thread::sleep(Duration::from_millis(900));
+        assert_eq!(*seen.lock().unwrap(), 0, "a read was taken for a change");
+        // and one real change is told once, not again for the read it causes
+        let tmp = dir.path().join("theme-tokens.json.tmp");
+        std::fs::write(&tmp, r##"{"version":3,"color":{"accent":"#222222"}}"##).unwrap();
+        std::fs::rename(&tmp, &p).unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        assert_eq!(*seen.lock().unwrap(), 1, "one change, one callback");
     }
 }

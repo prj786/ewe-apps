@@ -1,4 +1,15 @@
-import { Index, Match, Show, Switch, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
+import {
+  Index,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  type JSX,
+} from 'solid-js'
 import { placeMenu, placeSubmenu, type Point, type Rect } from '@ewe/shared'
 import { Icon, type IconName } from './Icon'
 import './Menu.css'
@@ -178,6 +189,9 @@ function MenuPanel(props: PanelProps): JSX.Element {
         props.onClose()
         break
       default:
+        // not the menu's key, and not the page's behind it either (Home, r, Space…
+        // moved or turned the document while its menu was open)
+        e.stopPropagation()
         return
     }
     e.preventDefault()
@@ -204,6 +218,8 @@ function MenuPanel(props: PanelProps): JSX.Element {
     if (props.focus) panel.focus()
     if (props.selectFirst) move(1)
   })
+  // asked for at another point while open (a second right-click): it follows
+  createEffect(on(() => props.anchor, place, { defer: true }))
 
   return (
     <>
@@ -322,8 +338,20 @@ function MenuPanel(props: PanelProps): JSX.Element {
 export function Menu(props: MenuProps): JSX.Element {
   onMount(() => {
     const onBlur = () => props.onClose()
+    // A press anywhere that is not a menu closes it — in the capture phase, before
+    // the thing pressed gets it. (Nothing did: a menu opened over a document stayed
+    // open while the page was clicked, and Escape no longer reached it either.)
+    const onPress = (e: PointerEvent) => {
+      const target = e.target
+      if (target instanceof Element && target.closest('.menu') !== null) return
+      props.onClose()
+    }
     window.addEventListener('blur', onBlur)
-    onCleanup(() => window.removeEventListener('blur', onBlur))
+    window.addEventListener('pointerdown', onPress, true)
+    onCleanup(() => {
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('pointerdown', onPress, true)
+    })
   })
   return (
     <MenuPanel

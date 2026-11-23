@@ -26,6 +26,7 @@ import { inTextInput, isMod, useKeys } from '../lib/keys'
 import { baseName } from '../lib/kinds'
 import { getSetting, recallPosition, savePosition, setSetting } from '../lib/store'
 import { flagNumber, hasFlag } from '../lib/flags'
+import { wheelStepper } from '../lib/wheel'
 import type { ViewProps } from './types'
 
 type Fit = 'height' | 'width'
@@ -114,8 +115,10 @@ export function ComicView(props: ViewProps): JSX.Element {
     if (first > 1) goTo(Math.max(1, first - stepBy()))
   }
 
+  // `pages` too: the list arrives after the first run, and when the book opens on page
+  // 1 neither `page` nor `spread` changes again — "Loading page 1" stayed for ever
   createEffect(
-    on([page, spread], () => {
+    on([page, spread, pages], () => {
       for (const n of visible()) void fetchPage(n)
       for (const d of [1, 2, -1, -2, 3, 4]) void fetchPage(page() + d)
     }),
@@ -212,11 +215,14 @@ export function ComicView(props: ViewProps): JSX.Element {
     setSetting('comicFit', f)
   }
 
+  // one page per notch, or per swipe of a touchpad (not per event of the swipe)
+  const flip = wheelStepper({ once: true })
   const onWheel = (e: WheelEvent) => {
     if (fit() === 'width') return // natural scrolling down the page
     e.preventDefault()
-    if (e.deltaY > 0) next()
-    else if (e.deltaY < 0) prev()
+    const dir = flip(e)
+    if (dir > 0) next()
+    else if (dir < 0) prev()
   }
 
   return (

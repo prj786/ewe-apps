@@ -1,6 +1,6 @@
 // The progress panel: every running or finished operation of this window.
 
-import { For, Show, type JSX } from 'solid-js'
+import { Index, Show, type JSX } from 'solid-js'
 import { baseName, formatBytes, formatTimeSpan, type OpProgress } from '@ewe/shared'
 import { Icon, IconButton, ProgressBar } from '@ewe/ui'
 
@@ -63,71 +63,78 @@ export function OpsPanel(props: {
         <IconButton icon="x" label="Close" size="sm" onClick={() => props.onClose()} />
       </header>
       <div class="ops-list">
-        <For each={props.ops}>
+        {/* Index, not For: a progress event replaces the op's object ~8 times a second, and
+            For rebuilt the row each time — a Pause or Stop pressed between two events
+            was gone before the click landed */}
+        <Index each={props.ops}>
           {(op) => (
-            <div class="op" classList={{ [op.state]: true }}>
+            <div class="op" classList={{ [op().state]: true }}>
               <div class="op-row">
-                <span class="op-label">{op.label}</span>
+                <span class="op-label">{op().label}</span>
                 <span class="op-actions">
-                  <Show when={op.state === 'running'}>
+                  <Show when={op().state === 'running'}>
                     <IconButton
                       icon="pause"
                       label="Pause"
                       size="sm"
-                      onClick={() => props.onPause(op.id)}
+                      onClick={() => props.onPause(op().id)}
                     />
                   </Show>
-                  <Show when={op.state === 'paused'}>
+                  <Show when={op().state === 'paused'}>
                     <IconButton
                       icon="play"
                       label="Resume"
                       size="sm"
-                      onClick={() => props.onResume(op.id)}
+                      onClick={() => props.onResume(op().id)}
                     />
                   </Show>
-                  <Show when={['running', 'paused', 'queued', 'waiting'].includes(op.state)}>
+                  <Show when={['running', 'paused', 'queued', 'waiting'].includes(op().state)}>
                     <IconButton
                       icon="x"
                       label="Stop"
                       size="sm"
-                      onClick={() => props.onCancel(op.id)}
+                      onClick={() => props.onCancel(op().id)}
                     />
                   </Show>
-                  <Show when={['done', 'failed', 'cancelled'].includes(op.state)}>
+                  <Show when={['done', 'failed', 'cancelled'].includes(op().state)}>
                     <IconButton
                       icon="x"
                       label="Dismiss"
                       size="sm"
-                      onClick={() => props.onDismiss(op.id)}
+                      onClick={() => props.onDismiss(op().id)}
                     />
                   </Show>
                 </span>
               </div>
               <ProgressBar
-                value={fraction(op)}
-                label={op.label}
+                value={fraction(op())}
+                label={op().label}
                 status={
-                  op.state === 'failed'
+                  op().state === 'failed'
                     ? 'danger'
-                    : op.state === 'paused' || op.state === 'waiting'
+                    : op().state === 'paused' || op().state === 'waiting'
                       ? 'warning'
-                      : op.state === 'done'
+                      : op().state === 'done'
                         ? 'success'
                         : undefined
                 }
               />
               <div class="op-detail">
-                <Show when={op.state === 'failed'}>
+                <Show when={op().state === 'failed'}>
                   <Icon name="circle-alert" size={12} />
                 </Show>
-                <span class="op-text">{detail(op)}</span>
-                <Show when={op.current !== '' && (op.state === 'running' || op.state === 'paused')}>
-                  <span class="op-current">{baseName(op.current)}</span>
+                <span class="op-text">{detail(op())}</span>
+                <Show
+                  when={
+                    op().current !== '' && (op().state === 'running' || op().state === 'paused')
+                  }
+                >
+                  <span class="op-current">{baseName(op().current)}</span>
                 </Show>
               </div>
             </div>
           )}
-        </For>
+        </Index>
       </div>
     </aside>
   )

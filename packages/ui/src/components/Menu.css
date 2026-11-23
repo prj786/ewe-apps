@@ -6,6 +6,10 @@
   flex-direction: column;
   min-width: var(--menu-width);
   max-width: calc(var(--menu-width) + var(--space-xl));
+  /* a long menu (twenty encodings) in a short window scrolls instead of being cut */
+  max-height: calc(100vh - 2 * var(--space-s));
+  overflow-y: auto;
+  scrollbar-width: thin;
   padding: var(--space-xs);
   background: var(--surface-overlay);
   border: var(--border-width-1) solid var(--border-subtle);

@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-app-core"
-version = "0.4.1-beta"
+version = "0.4.2-beta"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-files-app"
-version = "0.4.1-beta"
+version = "0.4.2-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-player"
-version = "0.4.1-beta"
+version = "0.4.2-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",
@@ -1216,7 +1216,7 @@ dependencies = [
 
 [[package]]
 name = "ewe-viewer"
-version = "0.4.1-beta"
+version = "0.4.2-beta"
 dependencies = [
  "chrono",
  "ewe-app-core",

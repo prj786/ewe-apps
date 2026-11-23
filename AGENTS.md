@@ -59,7 +59,7 @@ cargo test --workspace                   # the core's unit tests (Range, token, 
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.1-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.2-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -382,7 +382,10 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   `src-tauri/apps.rs`). A card there is an app:
   - **Ready or not.** `AppCard.ready` (the core's `eep::fetched`, asked on every listing — never
     cached, it changes without the card changing): an eep app is ready when
-    `$XDG_STATE_HOME/eep/roots/<id>` links to the card's `out`; a found app always is. How far an
+    `$XDG_STATE_HOME/eep/roots/<id>` links to the card's `out`; a found app always is. An
+    AppImage card (`source = "appimage"`, eep 0.4) is an eep app like the others — its `out` is
+    relative (`appimage/<id>/<key>`, no home folder in a card), so the link's target ENDS with
+    it (whole path components). How far an
     install is comes from eep's activity file (`$XDG_RUNTIME_DIR/eep/activity.json`): `apps.rs`
     follows it (notify on the folder, plus a re-read every 3 s while something is in flight — an
     eep that was killed says nothing more; entries of a dead pid are not read) and emits

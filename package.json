@@ -1,7 +1,7 @@
 {
   "name": "ewe-apps",
   "private": true,
-  "version": "0.4.1-beta",
+  "version": "0.4.2-beta",
   "license": "GPL-3.0-only",
   "description": "ewe Files, ewe Player and ewe Viewer — the first-party apps of the ewe desktop",
   "type": "module",

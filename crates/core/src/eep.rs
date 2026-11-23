@@ -132,15 +132,31 @@ pub fn roots_dir() -> PathBuf {
 }
 
 /// Whether eep has fetched the app a card names: its link in `roots` points at the
-/// card's store path. One `readlink`, so a listing asks every time.
+/// card's `out`. One `readlink`, so a listing asks every time.
+///
+/// `out` is a store path for an app from the Nix cache (the link's target IS it), and
+/// for an AppImage (`source = "appimage"`, eep 0.4) a path relative to eep's own data
+/// folder, `appimage/<id>/<key>` — a card is the same file on every computer, so it
+/// names no home folder: the link's target ENDS with it.
 pub fn fetched(roots: &Path, id: &str, out: &str) -> bool {
     let plain = !id.is_empty()
         && id
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-    plain
-        && !out.is_empty()
-        && std::fs::read_link(roots.join(id)).is_ok_and(|target| target == Path::new(out))
+    if !plain || out.is_empty() {
+        return false;
+    }
+    let out = Path::new(out);
+    std::fs::read_link(roots.join(id)).is_ok_and(|target| {
+        if out.is_absolute() {
+            target == out
+        } else {
+            // whole path components, and never a path that climbs
+            !out.components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+                && target.ends_with(out)
+        }
+    })
 }
 
 /// The embedded icon of a card's text: a PNG that starts like one, or an SVG.
@@ -468,6 +484,45 @@ mod tests {
         // an id that is no id never reaches outside the roots; no store path, no app
         assert!(!fetched(&roots, "../firefox", "/nix/store/x-firefox"));
         assert!(!fetched(&roots, "firefox", ""));
+    }
+
+    #[test]
+    fn an_appimage_app_is_ready_once_its_root_ends_with_the_cards_out() {
+        let state = tempfile::tempdir().unwrap();
+        let roots = state.path().join("eep/roots");
+        std::fs::create_dir_all(&roots).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Obsidian.eep");
+        // what eep writes for an AppImage: no home folder in the card
+        let text = "eep = 0\nid = \"obsidian\"\nname = \"Obsidian\"\nsource = \"appimage\"\n\
+                    url = \"https://example.org/Obsidian.AppImage\"\n\
+                    out = \"appimage/obsidian/e8c1169c4af66c31\"\ninstalled = 2026-11-23T10:00:00Z\n";
+        std::fs::write(&path, text).unwrap();
+        let app = || card_in(&path, &roots).unwrap();
+        assert!(
+            !app().system,
+            "an AppImage card is eep's own app, not a found one"
+        );
+        assert!(!app().ready, "just arrived: not unpacked yet");
+        let link = roots.join("obsidian");
+        // another version of it is unpacked: this card's is not
+        std::os::unix::fs::symlink(
+            "/home/you/.local/share/eep/appimage/obsidian/0000000000000000",
+            &link,
+        )
+        .unwrap();
+        assert!(!app().ready);
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(
+            "/home/you/.local/share/eep/appimage/obsidian/e8c1169c4af66c31",
+            &link,
+        )
+        .unwrap();
+        assert!(app().ready, "the same card, now unpacked");
+        // whole components only, and never a path that climbs
+        assert!(!fetched(&roots, "obsidian", "obsidian/e8c1169c4af66c31x"));
+        assert!(!fetched(&roots, "obsidian", "c4af66c31"));
+        assert!(!fetched(&roots, "obsidian", "../obsidian/e8c1169c4af66c31"));
     }
 
     #[test]

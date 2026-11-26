@@ -83,17 +83,27 @@ export interface PlacesProps {
 export function Places(props: PlacesProps): JSX.Element {
   const inside = (path: string) =>
     props.activePath === path || props.activePath.startsWith(path === '/' ? '/' : `${path}/`)
+  // GVFS mounts and /run/media folders already appear as places; devices add the rest
+  const extraDevices = () =>
+    props.devices.filter((d) => d.path === null || !props.places.some((p) => p.path === d.path))
   const activeId = () => {
     let best: FsPlace | null = null
     for (const p of props.places) {
       if (p.path === TRASH_PATH ? props.activePath === TRASH_PATH : inside(p.path))
         if (best === null || p.path.length > best.path.length) best = p
     }
+    // inside a device that is a row of its own (a phone), that row is the
+    // place — not "File system", which merely holds its mount point
+    const row = best
+    if (
+      row !== null &&
+      extraDevices().some(
+        (d) => d.path !== null && d.path.length > row.path.length && inside(d.path),
+      )
+    )
+      return null
     return best?.id ?? null
   }
-  // GVFS mounts and /run/media folders already appear as places; devices add the rest
-  const extraDevices = () =>
-    props.devices.filter((d) => d.path === null || !props.places.some((p) => p.path === d.path))
   return (
     <aside class="fm-places" classList={{ drawer: props.drawer ?? false }} aria-label="Places">
       <For each={GROUPS}>
@@ -184,7 +194,11 @@ export function Places(props: PlacesProps): JSX.Element {
                       offline: !d.mounted,
                       drop: d.path !== null && props.dropTarget === d.path,
                     }}
-                    title={d.uri ?? d.label}
+                    title={
+                      d.away
+                        ? `${d.label} isn’t in reach`
+                        : (d.uri ?? d.path ?? (d.mounted ? d.label : `Connect ${d.label}`))
+                    }
                     onClick={() => props.onDevice(d, d.mounted ? 'open' : 'mount')}
                     onContextMenu={(e) => {
                       e.preventDefault()
@@ -196,7 +210,7 @@ export function Places(props: PlacesProps): JSX.Element {
                     <span class="fm-place-label" dir="auto">
                       {d.label}
                     </span>
-                    <Show when={!d.mounted}>
+                    <Show when={!d.mounted && !d.away}>
                       <span class="fm-place-state">Connect</span>
                     </Show>
                     <Show when={d.mounted && (d.canEject || d.canUnmount)}>

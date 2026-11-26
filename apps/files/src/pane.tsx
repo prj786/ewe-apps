@@ -30,6 +30,7 @@ import {
   joinPath,
   listWindow,
   parentOf,
+  pathCrumbs,
   sortEntries,
   syncLabel,
   syncRootOf,
@@ -40,6 +41,7 @@ import {
   type FileKind,
   type FsPlace,
   type FsPlaceSync,
+  type PathRoot,
   type Point,
   type SearchFilters,
   type SortKey,
@@ -162,6 +164,8 @@ export interface PaneCtx {
   prefsFor(path: string): ViewPrefs
   setPref(path: string, patch: Partial<ViewPrefs>): void
   places: Accessor<FsPlace[]>
+  /** mounted devices: each is the first crumb and the title of what is inside it */
+  roots: Accessor<PathRoot[]>
   home(): string
   thumbUrl(path: string, size: 128 | 256 | 512): string
   /** the icon inside an eep card */
@@ -292,7 +296,11 @@ export function Pane(props: PaneProps): JSX.Element {
     return (
       ctx()
         .places()
-        .find((pl) => pl.path === p)?.label ?? baseName(p)
+        .find((pl) => pl.path === p)?.label ??
+      ctx()
+        .roots()
+        .find((r) => r.path === p)?.label ??
+      baseName(p)
     )
   }
 
@@ -633,21 +641,8 @@ export function Pane(props: PaneProps): JSX.Element {
 
   const crumbs = createMemo(() => {
     const p = path()
-    const h = ctx().home()
     if (p === '' || p === TRASH_PATH) return []
-    const out: { label: string; path: string }[] = []
-    let acc = ''
-    let rest = p
-    if (h !== '' && (p === h || p.startsWith(`${h}/`))) {
-      out.push({ label: 'Home', path: h })
-      acc = h
-      rest = p.slice(h.length)
-    } else out.push({ label: '/', path: '/' })
-    for (const part of rest.split('/').filter((x) => x !== '')) {
-      acc = `${acc}/${part}`
-      out.push({ label: part, path: acc })
-    }
-    return out
+    return pathCrumbs(p, ctx().home(), ctx().roots())
   })
 
   /** eep's Applications folder (its empty page says where apps come from) */

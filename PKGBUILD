@@ -14,8 +14,8 @@ pkgname=ewe-apps
 # extracts to <repo>-<tag without the leading v>, so the source URL and
 # the directory below follow _tag, never pkgver. The release workflow
 # rewrites both.
-_tag=v0.4.2-beta
-pkgver=0.4.2beta
+_tag=v0.5.0-beta
+pkgver=0.5.0beta
 pkgrel=1
 pkgdesc="ewe Files, ewe Player and ewe Viewer — files, video + music, documents + pictures on the ewe desktop"
 arch=('x86_64' 'aarch64')
@@ -47,6 +47,8 @@ optdepends=(
   'ewe: the desktop these are the apps of (theme-tokens.json, ewe-conf)'
   'mpv: "Open in mpv" when ewe Player cannot stream a site'
   'plocate: "Search everywhere" in ewe Files'
+  'kdeconnect: a paired phone as a device in ewe Files (pair it in ewe Mobile)'
+  'sshfs: KDE Connect mounts the phone with it'
   'unarchiver: RAR archives bsdtar cannot open (unar, lsar)'
 )
 makedepends=('rust' 'cargo' 'nodejs' 'npm')

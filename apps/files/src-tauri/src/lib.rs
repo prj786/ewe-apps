@@ -11,6 +11,7 @@ pub mod devices;
 pub mod fs;
 pub mod misc;
 pub mod ops;
+pub mod phones;
 pub mod places;
 pub mod props;
 pub mod search;
@@ -159,6 +160,7 @@ pub fn run() {
             };
             app.manage(state);
             devices::init(emit.clone());
+            phones::watch(emit.clone());
             apps::watch_activity(emit.clone());
             // "Show in folder" from every other app, when no other file manager holds the name
             let handle = app.clone();
@@ -321,11 +323,16 @@ async fn places() -> Vec<places::Place> {
 
 #[tauri::command]
 fn devices_list() -> Vec<devices::Device> {
-    devices::list()
+    let mut all = devices::list();
+    all.extend(phones::list());
+    all
 }
 
 #[tauri::command]
 fn device_action(state: State<'_, FilesState>, id: String, action: String) -> Result<(), String> {
+    if id.starts_with(phones::PREFIX) {
+        return phones::act(&id, &action, state.emit.clone());
+    }
     devices::act(&id, &action, state.emit.clone())
 }
 

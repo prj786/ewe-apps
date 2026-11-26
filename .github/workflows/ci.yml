@@ -18,7 +18,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev librsvg2-dev libxdo-dev libssl-dev \
-            build-essential file
+            build-essential file \
+            dbus-daemon python3-dbus python3-gi
 
       - uses: actions/setup-node@v4
         with:
@@ -76,7 +77,14 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
 
+      # a throwaway session bus: looking for phones must not start kdeconnectd,
+      # and a stand-in daemon goes through list → Connect → Disconnect
+      # (skips itself without dbus/python)
+      - name: Paired phones in ewe Files
+        run: scripts/test-phones.sh
+
       - name: Shell syntax
         run: |
           bash -n PKGBUILD
+          bash -n scripts/test-phones.sh
           bash -n scripts/gen-icons.sh

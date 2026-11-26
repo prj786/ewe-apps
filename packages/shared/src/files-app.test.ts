@@ -8,6 +8,7 @@ import {
   batchRenameNames,
   cardFileName,
   cardStem,
+  deviceRoots,
   isExecutable,
   joinPath,
   listWindow,
@@ -17,7 +18,9 @@ import {
   modeText,
   modeTriplets,
   parentOf,
+  pathCrumbs,
   uniqueName,
+  type Device,
 } from './files-app'
 
 describe('paths', () => {
@@ -195,5 +198,79 @@ describe('windowed lists', () => {
     })
     expect(list.start).toBe(48)
     expect(listWindow({ total: 5, row: 0, cols: 0, scrollTop: -9, viewport: 0 }).end).toBe(5)
+  })
+})
+
+describe('roots and crumbs', () => {
+  const device = (label: string, path: string | null, mounted = true): Device => ({
+    id: label,
+    label,
+    icon: 'smartphone',
+    kind: 'phone',
+    path,
+    uri: null,
+    mounted,
+    canMount: !mounted,
+    canUnmount: mounted,
+    canEject: false,
+    removable: true,
+    size: null,
+    away: false,
+  })
+  const phone = '/run/user/1000/be62e5e5/storage/emulated/0'
+
+  it('makes a root of every mounted device, and of nothing else', () => {
+    expect(
+      deviceRoots([
+        device('Pixel', phone),
+        device('Away', null, false),
+        device('Stick', '/run/media/you/STICK'),
+        device('System', '/'),
+      ]),
+    ).toEqual([
+      { label: 'Pixel', path: phone },
+      { label: 'Stick', path: '/run/media/you/STICK' },
+    ])
+  })
+
+  it('starts at Home, at a device, or at /', () => {
+    expect(pathCrumbs('/home/you', '/home/you')).toEqual([{ label: 'Home', path: '/home/you' }])
+    expect(pathCrumbs('/home/you/Music/a', '/home/you').map((c) => c.label)).toEqual([
+      'Home',
+      'Music',
+      'a',
+    ])
+    expect(pathCrumbs('/etc/pacman.d', '/home/you')).toEqual([
+      { label: '/', path: '/' },
+      { label: 'etc', path: '/etc' },
+      { label: 'pacman.d', path: '/etc/pacman.d' },
+    ])
+    expect(pathCrumbs('/', '/home/you')).toEqual([{ label: '/', path: '/' }])
+    expect(pathCrumbs('', '/home/you')).toEqual([])
+  })
+
+  it('reads a phone as a place, not as where it is mounted', () => {
+    const roots = deviceRoots([device('Pixel', phone)])
+    expect(pathCrumbs(phone, '/home/you', roots)).toEqual([{ label: 'Pixel', path: phone }])
+    expect(pathCrumbs(`${phone}/DCIM/Camera`, '/home/you', roots)).toEqual([
+      { label: 'Pixel', path: phone },
+      { label: 'DCIM', path: `${phone}/DCIM` },
+      { label: 'Camera', path: `${phone}/DCIM/Camera` },
+    ])
+    // above the root it is an ordinary path again, and a sibling is not inside
+    expect(pathCrumbs('/run/user/1000', '/home/you', roots)[0]).toEqual({ label: '/', path: '/' })
+    expect(pathCrumbs(`${phone}0/x`, '/home/you', roots)[0]).toEqual({ label: '/', path: '/' })
+  })
+
+  it('takes the deepest root that holds the path', () => {
+    const roots = [
+      { label: 'Stick', path: '/home/you/mnt' },
+      { label: 'Card', path: '/home/you/mnt/card' },
+    ]
+    expect(pathCrumbs('/home/you/mnt/card/a', '/home/you', roots).map((c) => c.label)).toEqual([
+      'Card',
+      'a',
+    ])
+    expect(pathCrumbs('/home/you/mnt', '/home/you', roots).map((c) => c.label)).toEqual(['Stick'])
   })
 })

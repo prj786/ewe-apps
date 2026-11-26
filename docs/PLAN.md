@@ -231,4 +231,9 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
 - [x] ewe-repo (Reversal dedupe via hardlink, publish ewe-apps, gate blacklists nvidia-utils)
 - [x] ISO trim
 - [x] idle RAM (Komble quits on close, ewe-sync's window only while shown, shell −22…24 MB)
+- [x] the phone in ewe Files — 2026-11-26 (0.5.0-beta; ewe RFC-012, A1): a phone paired over
+      KDE Connect is a device row (Connect / away / eject), mounted through the daemon's sshfs,
+      and reads as a place ("Pixel › DCIM"). `apps/files/src-tauri/src/phones.rs`,
+      `scripts/test-phones.sh`. Mounted, listed and unmounted for real against a Pixel; the
+      window itself was driven against a stand-in daemon under a headless cage
 - [ ] vault

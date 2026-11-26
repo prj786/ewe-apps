@@ -1,5 +1,6 @@
-//! Drives, phones, cards and network shares through GIO's volume monitor (main
-//! thread only: GIO objects are not `Send`). Mount / unmount / eject run async on
+//! Drives, phones on a cable, cards and network shares through GIO's volume monitor
+//! (main thread only: GIO objects are not `Send`). A phone paired over KDE Connect
+//! is not GIO's — phones.rs adds those rows. Mount / unmount / eject run async on
 //! the GLib main loop and report through `device-result`; credentials are asked
 //! through `mount-ask` and answered with [`mount_reply`].
 
@@ -11,7 +12,7 @@ use serde::Serialize;
 
 use crate::ops::Emit;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
     pub id: String,
@@ -29,6 +30,9 @@ pub struct Device {
     pub can_eject: bool,
     pub removable: bool,
     pub size: Option<u64>,
+    /// a paired phone that is not in reach now (phones.rs): a row that
+    /// cannot be connected until it is back
+    pub away: bool,
 }
 
 thread_local! {
@@ -158,6 +162,7 @@ pub fn list() -> Vec<Device> {
             can_eject: v.can_eject() || drive.as_ref().map(|d| d.can_eject()).unwrap_or(false),
             removable,
             size,
+            away: false,
         });
     }
     for m in monitor.mounts() {
@@ -180,6 +185,7 @@ pub fn list() -> Vec<Device> {
             can_eject: m.can_eject(),
             removable: true,
             size: None,
+            away: false,
         });
     }
     out

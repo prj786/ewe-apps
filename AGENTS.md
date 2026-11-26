@@ -57,9 +57,10 @@ npx -y pnpm@11.13.0 test                 # vitest: packages/shared, packages/ui
 npx -y pnpm@11.13.0 test                 # also apps/viewer: memory, csv, exif, flags
 cargo test --workspace                   # the core's unit tests (Range, token, thumbnails, xbel, launch, mime, theme watch, exif, text encodings, HEIC, eep cards + /app-icon) + the viewer's comics + the player's subtitles in every encoding
 cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check
+scripts/test-phones.sh                   # ewe Files' paired phones against a stand-in kdeconnectd, on a private bus
 cd apps/viewer && npx -y pnpm@11.13.0 tauri dev                 # dev with HMR (same for files, player)
 cd apps/viewer && npx -y pnpm@11.13.0 tauri build --no-bundle   # → target/release/ewe-viewer
-target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.4.2-beta"}
+target/release/ewe-viewer --version      # {"ok":true,"name":"ewe-viewer","product":"ewe Viewer","version":"0.5.0-beta"}
 ```
 
 Build through the Tauri CLI, never bare `cargo build`, for anything you run: tauri-build decides
@@ -318,6 +319,12 @@ src-tauri/src/lib.rs      SPEC, FilesState, every command (list_dir, places, dev
                           server…" (mount_enclosing_volume) through a MountOperation whose ask-password
                           / ask-question become `mount-ask` / `mount-question`, answered by mount_reply;
                           results as `device-result {id, action, ok, path, error}`
+  phones.rs               paired phones as Device rows (ids `kdc:<device>`): asks kdeconnectd on the
+                          session bus (zbus) who is paired, in reach and mounted; Connect = its
+                          `mountAndWait` (sshfs under $XDG_RUNTIME_DIR, where GIO does not look),
+                          Disconnect = `unmount`; a watcher keeps the rows (signals only mean "look
+                          again") and emits `devices-changed`. NEVER starts the daemon: every call
+                          goes to its unique bus address. See "Phones" below
   dbus.rs                 zbus: org.freedesktop.FileManager1 (ShowFolders / ShowItems /
                           ShowItemProperties → a new window with --folders / --select / --properties);
                           the name is simply not claimed while Nemo holds it
@@ -462,6 +469,33 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   uncaught errors and unhandled rejections to stderr (`<out>.png.log` under shot.sh).
 - Measured 2026-11-19 (release, headless cage): 3 pictures in a grid 236 MB PSS; a 3200-entry
   folder 238 MB PSS in the grid and 229 MB in the list (735 MB before the rows were windowed).
+
+### Phones (0.5.0)
+
+A phone paired over KDE Connect (ewe Mobile, the Phone plugin) is a row under Devices:
+`Connect` while it is in reach, dimmed with no chip while it is away (a click says so), an eject
+button while its storage is mounted. Inside it the crumbs and the tab read "Pixel › DCIM", not
+`/run/user/1000/<id>/storage/emulated/0/DCIM` — every mounted device is a crumb root now
+(`deviceRoots` / `pathCrumbs` in @ewe/shared, `PaneCtx.roots`), drives too. Disconnecting a device
+sends the panes that were inside it Home.
+
+- `phones.rs` is the only file that knows KDE Connect. Verified against kdeconnect 26.08.3 and a
+  Pixel (2026-11-26): `devices(false, true)`, the device's `supportedPlugins` / `isReachable` /
+  `loadedPlugins`, `…/sftp`: `isMounted`, `mountPoint`, `mountAndWait` → `b`, `getDirectories` →
+  `a{sv}` (folder → its name: `/run/user/1000/<id>/storage/emulated/0` → "Internal shared
+  storage"), `unmount`. The sftp object only exists while the phone is in reach.
+- **A method call to the name `org.kde.kdeconnect` starts the daemon** (D-Bus activation), and a
+  daemon that was not running becomes a new device on the network. `owner()` asks the bus who
+  holds the name (that starts nothing) and every call is addressed to that unique address;
+  nobody home = no phones. `scripts/test-phones.sh` proves it on a private bus, then runs a
+  stand-in daemon through list → Connect → Disconnect.
+- The phone names its folders, and KDE Connect glues them onto its mount point: a folder is only
+  taken when it is inside that mount with no `..` (`dir_ok`); names are one short line (`tidy`).
+- What a phone shows is Android's doing: shared storage, never `Android/data`. The mount drops
+  when the phone sleeps or leaves the Wi-Fi; the row then reads Connect again.
+- `cargo test -p ewe-files-app live_phones -- --ignored --nocapture` reads the real daemon
+  (states only, mounts nothing); `live_mount` connects and disconnects the phone in reach and
+  prints counts (2026-11-26, a Pixel: one folder, 15 entries, unmounted clean).
 
 ## ewe Player (`apps/player`)
 

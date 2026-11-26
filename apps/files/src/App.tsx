@@ -27,6 +27,7 @@ import {
   baseName,
   comboKey,
   cardFileName,
+  deviceRoots,
   displayName,
   fileKind,
   isAppImage,
@@ -771,11 +772,21 @@ export function App(): JSX.Element {
     pane.go(place.path)
   }
 
+  // where a device was, while it is being disconnected: the panes looking
+  // inside it go Home when it is gone, instead of showing a folder that is not there
+  const leaving = new Map<string, string>()
+
   const deviceAction = (d: Device, action: 'mount' | 'unmount' | 'eject' | 'open') => {
     if (action === 'open') {
       if (d.path !== null) activePane()?.go(d.path)
       return
     }
+    // a paired phone that is not here: nothing to wait for
+    if (action === 'mount' && d.away) {
+      say(`${d.label} isn’t in reach. Unlock it and check that it is on the same Wi-Fi.`)
+      return
+    }
+    if (action !== 'mount' && d.path !== null) leaving.set(d.id, d.path)
     say(
       action === 'mount'
         ? `Connecting ${d.label}…`
@@ -1311,6 +1322,7 @@ export function App(): JSX.Element {
       } else if (d.canMount)
         items.push(item('mount', 'Connect', 'plug', () => deviceAction(d, 'mount')))
     }
+    if (items.length === 0) return // a phone that is away: nothing can be done to it
     setMenu({ at, items })
   }
 
@@ -1813,10 +1825,19 @@ export function App(): JSX.Element {
           if (r.action === 'mount' || r.action === 'connect') {
             say(r.action === 'connect' ? 'Connected' : 'Connected', 'success')
             if (r.path !== null && r.path !== undefined) activePane()?.go(r.path)
-          } else say(r.action === 'eject' ? 'Safe to remove' : 'Disconnected', 'success')
+          } else {
+            say(r.action === 'eject' ? 'Safe to remove' : 'Disconnected', 'success')
+            const was = leaving.get(r.id)
+            if (was !== undefined)
+              for (const pane of panes.values()) {
+                const at = pane.path()
+                if (at === was || at.startsWith(`${was}/`)) pane.go(home())
+              }
+          }
           refreshDevices()
           refreshPlaces()
         } else if (r.cancelled !== true) say(r.error ?? 'Could not do that', 'danger')
+        leaving.delete(r.id)
       }),
       onEvent('mount-ask', (ask) => setDialog({ kind: 'credentials', ask })),
       onEvent('mount-question', (q) => setDialog({ kind: 'question', q })),
@@ -1886,10 +1907,13 @@ export function App(): JSX.Element {
     ops().some((o) => ['queued', 'running', 'paused', 'waiting'].includes(o.state)),
   )
 
+  const roots = createMemo(() => deviceRoots(devices()))
+
   const paneCtx: PaneCtx = {
     prefsFor,
     setPref,
     places,
+    roots,
     home,
     thumbUrl: thumb,
     appIconUrl: appIcon,

@@ -249,6 +249,50 @@ export interface Device {
   canEject: boolean
   removable: boolean
   size: number | null
+  /** a paired phone that is not in reach now: a row, but nothing to connect to */
+  away: boolean
+}
+
+/** A folder that reads as a place of its own: the first crumb, a tab's title. */
+export interface PathRoot {
+  label: string
+  path: string
+}
+
+/** Every mounted device is a root: "Pixel › DCIM", not "/ › run › user › 1000 › …". */
+export function deviceRoots(devices: readonly Device[]): PathRoot[] {
+  return devices.flatMap((d) =>
+    d.mounted && d.path !== null && d.path !== '/' ? [{ label: d.label, path: d.path }] : [],
+  )
+}
+
+const holds = (root: string, path: string) =>
+  path === root || path.startsWith(root === '/' ? '/' : `${root}/`)
+
+/**
+ * A path as crumbs. The first one is the deepest root that holds the path —
+ * Home, or a mounted device — and "/" when none does; then every folder below.
+ */
+export function pathCrumbs(
+  path: string,
+  home: string,
+  roots: readonly PathRoot[] = [],
+): { label: string; path: string }[] {
+  if (path === '') return []
+  let first: PathRoot = { label: '/', path: '/' }
+  const candidates = home === '' ? roots : [{ label: 'Home', path: home }, ...roots]
+  for (const r of candidates)
+    if (r.path !== '' && holds(r.path, path) && r.path.length > first.path.length) first = r
+  const out = [{ label: first.label, path: first.path }]
+  let acc = first.path === '/' ? '' : first.path
+  for (const part of path
+    .slice(acc.length)
+    .split('/')
+    .filter((x) => x !== '')) {
+    acc = `${acc}/${part}`
+    out.push({ label: part, path: acc })
+  }
+  return out
 }
 
 export interface DeviceResult {

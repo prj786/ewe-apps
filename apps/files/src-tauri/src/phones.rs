@@ -390,9 +390,6 @@ pub async fn mount(conn: &Connection, device: &str) -> Result<String, String> {
     let to = owner(conn)
         .await
         .ok_or("The phone link isn’t running. Open ewe Mobile.")?;
-    if !which("sshfs") {
-        return Err("Opening a phone needs sshfs. Install it with Komble, then try again.".into());
-    }
     let path = format!("{ROOT}/devices/{device}");
     let p = props(conn, &to, &path).await.ok_or("That phone is gone")?;
     let name = tidy(
@@ -419,6 +416,12 @@ pub async fn mount(conn: &Connection, device: &str) -> Result<String, String> {
         .as_bool()
         == Some(true);
     if !ok {
+        // the daemon mounts with sshfs and only says "failed" without it
+        if !which("sshfs") {
+            return Err(
+                "Opening a phone needs sshfs. Install it with Komble, then try again.".into(),
+            );
+        }
         let why = call(conn, &to, ANSWER, &sftp, SFTP, "getMountError", &())
             .await
             .ok()

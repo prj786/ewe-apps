@@ -14,8 +14,6 @@ pub const SPEC: AppSpec = AppSpec {
     version: env!("CARGO_PKG_VERSION"),
     width: 1000.0,
     height: 700.0,
-    min_width: 480.0,
-    min_height: 360.0,
 };
 
 pub fn run() {

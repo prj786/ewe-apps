@@ -26,8 +26,6 @@ pub const SPEC: AppSpec = AppSpec {
     version: env!("CARGO_PKG_VERSION"),
     width: 1000.0,
     height: 640.0,
-    min_width: 480.0,
-    min_height: 320.0,
 };
 
 /// The player's start-up as a plugin (the core owns `Builder::setup`): MPRIS on the bus,

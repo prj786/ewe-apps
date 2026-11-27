@@ -125,7 +125,7 @@ export function Places(props: PlacesProps): JSX.Element {
                     drop: props.dropTarget === place.path,
                   }}
                   data-place={place.id}
-                  title={
+                  data-tooltip={
                     place.state === 'setup'
                       ? 'Sign in to your ewe account in ewe Sync'
                       : place.state === 'offline' && place.mount !== undefined
@@ -194,7 +194,7 @@ export function Places(props: PlacesProps): JSX.Element {
                       offline: !d.mounted,
                       drop: d.path !== null && props.dropTarget === d.path,
                     }}
-                    title={
+                    data-tooltip={
                       d.away
                         ? `${d.label} isn’t in reach`
                         : (d.uri ?? d.path ?? (d.mounted ? d.label : `Connect ${d.label}`))
@@ -218,7 +218,7 @@ export function Places(props: PlacesProps): JSX.Element {
                         class="fm-place-eject"
                         role="button"
                         aria-label={d.canEject ? 'Eject' : 'Unmount'}
-                        title={d.canEject ? 'Eject' : 'Unmount'}
+                        data-tooltip={d.canEject ? 'Eject' : 'Unmount'}
                         onClick={(e) => {
                           e.stopPropagation()
                           props.onDevice(d, d.canEject ? 'eject' : 'unmount')

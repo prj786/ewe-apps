@@ -33,7 +33,9 @@ crates/core      ewe-app-core       theme (read + notify watch), server (axum lo
                                     (recently-used.xbel), mime (GIO), exif (kamadak-exif → ExifInfo),
                                     eep (eep app cards: name + embedded icon, cached per path+mtime),
                                     launch (argv), app (the Tauri builder; `run_with` takes a builder
-                                    hook for app plugins), commands (the Tauri commands), xdg
+                                    hook for app plugins), commands (the Tauri commands), xdg,
+                                    crash (a panic → one line in the journal), pointer (hover ends
+                                    when the pointer leaves the window)
 apps/{files,player,viewer}          index.html, vite.config.ts (ports 5181/5182/5183), src/{index.tsx,
                                     App.tsx, app.css}; src-tauri/{Cargo.toml, tauri.conf.json,
                                     capabilities/default.json, icons/, src/lib.rs (SPEC + run)}
@@ -80,6 +82,18 @@ handler![…])`): `--version` prints JSON and exits 0 (rule 5); `glib::set_prgna
   `window_builder` in app.rs: built hidden and then shown, with the theme's variant and page
   colour, and with the **boot script** (`window.__ewe = { theme, server, app, launch, dirs }`,
   `boot()` in the kit) — see "Start-up".
+- **A window has no minimum size** (0.5.1; `AppSpec` is `width` × `height` only). Hyprland gives
+  a tiled window the size of its tile whatever it asks for; a window that insists on more is
+  drawn squeezed into the tile on a scaled screen (cropped at scale 1) while the pointer is not,
+  so every hover, click and drop lands beside what is drawn. The page takes any size: see
+  "Small windows". Only a `WindowShape` with `resizable: false` keeps a fixed size.
+- **Every window passes through `finish()`** (app.rs), which also connects `pointer.rs`: on
+  Wayland a pointer leave carries no position, GDK fills in the last one (inside the window) and
+  WebKit kept `:hover` on the element there — a place or a tile stayed lit while the pointer was
+  in the next window. The leave event's point is moved outside the view before WebKit reads it.
+- **A panic is said in the journal** (`crash.rs`, installed first thing in `run_with`): the
+  release profile aborts on a panic and a desktop app's stderr goes nowhere, so a panic was "the
+  window vanished". `journalctl -t ewe-files-app -p crit` (the binary's name) has the sentence.
 - **Launch args** (`launch.rs`, `getLaunch()` / `onLaunch()`): tokens starting with `--` are
   `flags` (use `--key=value`; a flag's value is never a separate token), everything else is a
   path (`file://` URLs decoded, relative paths joined to `cwd`, other URLs dropped). `--demo`
@@ -160,6 +174,22 @@ recently-used.xbel`, bumps or adds the entry with this app in `bookmark:applicat
   `toast()` for short confirmations, `Dialog` for anything modal. `.page` is `surface-raised`,
   headers `.app-header`, `.toolbar` rows with `.toolbar-spacer`. No `text-transform: uppercase`.
   Icons: add Lucide paths to `Icon.tsx` (`ICONS`), stroke 2, 24-box.
+- **Hints** (`data-tooltip`, the `Tooltip` wrapper, every `IconButton`) are ONE bubble for the
+  window (`installTooltips()` in the kit, called in each `index.tsx`; `placeTooltip` in
+  @ewe/shared, tested): placed by measuring, so it is inside the window at every edge and
+  nothing that scrolls can cut it. The side is CSS — `--tip-side: above | below | left | right`
+  on the element (bars: below; the Player's rail: right; Files' places: below) — and it takes
+  the opposite side when there is no room. It has no box while hidden (`display: none`). A
+  `title=` attribute is NOT this: WebKitGTK hands it to GTK, which draws its own tooltip window
+  around the pointer, in the GTK theme, free to hang out of the window over a neighbour.
+- **Small windows** (0.5.1, the kit's part): a `Segmented` wider than what holds it scrolls
+  inside itself and brings the chosen item into view; a `Dialog` in a window under 420 px high
+  scrolls as a whole card (its body used to shrink to nothing and the buttons hung out), and its
+  actions wrap; a tab strip keeps its + pinned at the end, brings the open tab into view when
+  the strip is resized too, and under 480 px (`@container app`) gives every other tab a short
+  label. Look at a change in a 240 × 200 window before calling it done, in a real window: a nested
+  Hyprland with a headless output (`hyprctl output create headless`, any mode and scale) tiles
+  or floats it at any size; `--shot-width` only narrows the root inside a 1280 px viewport.
 
 ## Start-up (measure, do not guess)
 
@@ -264,7 +294,10 @@ src-tauri/src/comics.rs     natural order (tested), page filter, zip in-process;
 
 The PDF toolbar condenses by its width: icon-only below 760 (the page modes become one button
 with a menu, the zoom shows only its percent, "Save a copy" an icon), and below 560 Find and the
-page modes move into ⋯. The picture toolbar: below 640 Previous/Next (the arrows over the
+page modes move into ⋯; below 440 the zoom steps and "of N" go and night mode joins ⋯, below
+310 the page arrows too (`tightBar` / `tinyBar`: ⋯ itself used to leave the window). The text
+bar loses its size steps and the file's name under 300. Every `.view-toolbar` scrolls sideways
+as a last resort. The picture toolbar: below 640 Previous/Next (the arrows over the
 picture and ← → stay), Fit, Rotate and Slideshow leave it (the last three join ⋯) and the zoom
 shows only its percent; below 430 the − / + buttons and the meta line go too. The image info
 panel takes at most half the window, the PDF/book sidebar at most 45 %.
@@ -364,7 +397,11 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   `application/x-ewe-files`. Tauri's drag-drop handler returns true for any uri-list drop, which
   swallows the DOM `drop`, so drops are handled from `onDragDropEvent` by hit-testing
   `[data-drop]` under the pointer (DOM `dragover` still highlights, DOM `drop` is the fallback,
-  deduped by time). Ctrl copies. Not exercised headless: see PLAN.md.
+  deduped by time). Ctrl copies. **The event's position is already in CSS pixels**: wry hands
+  GTK's drag coordinates through and Tauri only labels them `PhysicalPosition`. 0.5.0 divided
+  them by `devicePixelRatio`: on a scale-2 screen a file dragged onto Videos lit Desktop (the
+  row at half the coordinates) and was moved into it. Proven with a real drag by a virtual
+  pointer in a nested Hyprland at scale 1 and 2 (0.5.1); look again after a wry bump.
 - **The pane, small print** (0.4.1): search results are not a folder — `reload()` (F5, an
   `fs-changed`, an undo) leaves them, `forget(paths)` drops rows that were trashed, and Rename /
   New folder are off there. Shift+arrows extend from the anchor (a separate `cursor`). The rename
@@ -456,7 +493,8 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   (closes on a place, Esc or a click outside), F9 opens the preview as an overlay with a close
   button — both session-only, `prefs.places`/`prefs.preview` stay as saved — and Split, Preview,
   Operations, New window fold into a ⋯ menu; tiny < 480 = the tab strip scrolls, other tabs at
-  96px. Everywhere: the open folder's tab keeps its name; F3 refuses ("Not enough room for two
+  96px (that rule is the kit's now, for the Viewer's strip too). Everywhere: the open folder's
+  tab keeps its name; F3 refuses ("Not enough room for two
   panes") when `.fm-main` < 2 × 300px, and a split tab that no longer fits shows its active
   pane only (`@container fm-main`).
 - Narrow panes (split view, the preview pane): the pane is a CSS container; the list drops Type
@@ -465,7 +503,8 @@ src/places.tsx            the places panel + devices; src/dialogs.tsx (conflict,
   the filter becomes a button that expands in place of the crumbs, hidden/sort/view move into a
   ⋯ menu, and below 560 the crumbs collapse to "… › folder" (the … opens the parents) and New
   folder joins the menu. The Operations panel is a popover under its toolbar button (closes on
-  a click outside), not a third column; a pane never goes under 300px. `dev_log` prints the webview's
+  a click outside), not a third column; a pane never goes under 300px — unless the window
+  itself is narrower, and then the pane is the window (`min-width: min(300px, 100%)`). `dev_log` prints the webview's
   uncaught errors and unhandled rejections to stderr (`<out>.png.log` under shot.sh).
 - Measured 2026-11-19 (release, headless cage): 3 pictures in a grid 236 MB PSS; a 3200-entry
   folder 238 MB PSS in the grid and 229 MB in the list (735 MB before the rows were windowed).
@@ -569,9 +608,15 @@ packages/shared        player.ts (MediaItem with a link's title/thumbnail/durati
   (shot.sh passes it).
 - **Narrow windows**: the music nav is a labelled column, an icon rail below 720 (labels as
   tooltips) and a segmented control over the list below 520 (Rescan moves into the ⋯ menu, the
-  bar keeps the mute button only). The video bar below 560 (`narrowBar`, the stage's width, not
-  in the mini window) hides the time, speed, picture and audio buttons; Speed and "Fit, zoom,
-  rotate" join ⋯ as submenus.
+  bar keeps the mute button only; an album's cover stands over its words). Below 420 the bar is
+  the transport alone (the cover and the name are in Now playing) and a song row drops its
+  album; in a window under 320 high the page scrolls as a whole. The video bar below 560
+  (`narrowBar`, the stage's width, not in the mini window) hides the time, speed, picture and
+  audio buttons; Speed and "Fit, zoom, rotate" join ⋯ as submenus. Narrower still (`barTier`)
+  the volume is its button only (< 470), the ±10 s buttons go (< 370), then previous/next
+  (< 300): Subtitles, Playlist, ⋯ and Fullscreen never leave the window. Under 530 the playlist
+  is a page over the video, not a column. The header's name ends in an ellipsis, then only the
+  mark is left.
 - **MPRIS**: the webview is the source of truth; it pushes `mpris_update` (status, position every
   second, metadata with a `file://` art URL from `cover_art_file`, volume, loop, shuffle, rate) and
   the Rust `Player` answers the bus; method calls come back as the `mpris-command` event. Test
@@ -650,6 +695,19 @@ playing ≈ 266 MB PSS.
   to the primary button a microtask later).
 - **bsdtar takes a member name as a pattern**: `[Group] Title/001.jpg` matched nothing.
   `glob_escape` in comics.rs.
+
+- **The picture that follows the pointer in a drag is twice too large at scale 2** (seen
+  2026-11-27, WebKitGTK 2.54, not fixed here). WebKit snapshots the dragged element in device
+  pixels and gives GTK the bitmap without a device scale; `gtk_drag_set_icon_surface` sizes its
+  popup by the bitmap's pixels (measured: a 120 px tile → a 242 × 242 request). The hot spot is
+  right. The bitmap sits in a cairo pattern inside GTK's own draw handler: any fix from here
+  reaches into GTK's drag-icon widgets or shrinks the element by 1/scale in the page, and
+  either one halves the picture the day WebKit says the scale itself.
+- **A fixed layer left where it last was counts as content.** The hint bubble kept its last
+  place while hidden; in a window that had since shrunk it lay outside, and the page could be
+  scrolled sideways. It has no box while hidden now. Same family: a grid track with a fixed
+  minimum (`minmax(360px, 1fr)`) is wider than a narrow window — write `minmax(min(360px, 100%),
+1fr)`.
 
 - `tauri build` refuses an npm `@tauri-apps/api` whose major.minor differs from the `tauri`
   crate. The crate is `tauri = "2"` (resolves 2.12.x today) and every package.json pins

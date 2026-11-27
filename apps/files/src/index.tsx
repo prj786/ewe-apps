@@ -1,6 +1,6 @@
 import { render } from 'solid-js/web'
 import { invoke } from '@tauri-apps/api/core'
-import { followTheme, fontsReady, trace } from '@ewe/ui'
+import { followTheme, fontsReady, installTooltips, trace } from '@ewe/ui'
 import '@ewe/ui/styles.css'
 import './app.css'
 import { App } from './App'
@@ -19,6 +19,8 @@ window.addEventListener('unhandledrejection', (e) =>
 
 // the theme is on :root before the first paint; the core keeps it fresh
 followTheme()
+// hints (`data-tooltip`) are one bubble that stays inside the window
+installTooltips()
 
 // The small "Install" window (`--install=<card>`) is the same page with another
 // view: the Rust side says so before any script runs (apps/files/src-tauri: install_shape).

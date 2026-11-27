@@ -1,5 +1,6 @@
 export * from './models'
 export * from './menu'
+export * from './tooltip'
 export * from './files'
 export * from './music'
 export * from './media'

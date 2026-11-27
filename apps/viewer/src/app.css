@@ -65,6 +65,23 @@
   min-height: var(--bar-height);
   border-bottom: var(--border-width-1) solid var(--border-subtle);
   background: var(--surface-raised);
+  /* the last resort in a window narrower than a view's bar: the bar scrolls, nothing
+     on it is out of reach (the PDF and text bars shed buttons before it comes to that) */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.view-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* a window under 300: the text bar keeps what only it can do. The size steps leave it
+   (Ctrl+− and Ctrl++ stay), and the file's name, which the tab already says */
+@container app (width < 300px) {
+  .tv-step,
+  .tv .view-title {
+    display: none;
+  }
 }
 
 .view-title {

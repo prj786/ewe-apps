@@ -19,6 +19,8 @@
 //! - [`launch`]: argv → paths and flags (`--version` prints JSON and exits 0).
 //! - [`app`]: the Tauri builder every app runs through (single instance, app_id,
 //!   media server, theme watcher, one window, quit when it closes).
+//! - [`crash`]: a panic is written to the journal before the app aborts.
+//! - [`pointer`]: hover ends when the pointer leaves the window.
 //!
 //! The Tauri commands live in [`commands`] and are re-exported at the crate root
 //! so `tauri::generate_handler![ewe_app_core::theme_tokens, …]` resolves their
@@ -27,11 +29,13 @@
 pub mod app;
 pub mod commands;
 pub mod cover;
+pub mod crash;
 pub mod eep;
 pub mod exif;
 pub mod launch;
 pub mod mime;
 pub mod picture;
+pub mod pointer;
 pub mod recent;
 pub mod server;
 pub mod text;

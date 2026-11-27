@@ -15,10 +15,13 @@ pub struct AppSpec {
     /// the product name shown in the title, e.g. `ewe Viewer`
     pub name: &'static str,
     pub version: &'static str,
+    /// the size a window opens with. There is no minimum: a tiling compositor gives
+    /// a window the size of its tile whatever it asks for, and a window that insists
+    /// on more is drawn squeezed into the tile on a scaled screen (cropped on an
+    /// unscaled one) while the pointer is not, so every hover, click and drop lands
+    /// beside what is drawn. The page takes the size it gets.
     pub width: f64,
     pub height: f64,
-    pub min_width: f64,
-    pub min_height: f64,
 }
 
 /// A [`RunHooks::setup`] callback.
@@ -82,6 +85,8 @@ pub fn run_with<F>(spec: AppSpec, context: tauri::Context<tauri::Wry>, handler: 
 where
     F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static,
 {
+    // first: whatever goes wrong after this line is said in the journal
+    crate::crash::log_panics(spec.id, spec.version);
     crate::trace::mark("main");
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let launch = Launch::parse(std::env::args().skip(1), &cwd);
@@ -251,13 +256,17 @@ fn window_builder<'a>(
     builder
 }
 
+/// What every window gets once it is built: its hover ends when the pointer leaves
+/// (see [`crate::pointer`]), and it is shown.
 fn finish(win: WebviewWindow) -> tauri::Result<WebviewWindow> {
+    crate::pointer::forget_hover_on_leave(&win);
     win.show()?;
     crate::trace::mark("window");
     Ok(win)
 }
 
-/// Open another window of the app (`index.html`, undecorated, the spec's sizes).
+/// Open another window of the app (`index.html`, undecorated, the spec's size and
+/// no minimum: see [`AppSpec::width`]).
 /// The capability file must list the label (`main`, or a pattern such as `win-*`).
 /// `launch` is what this window was asked to open, when the caller knows it: the
 /// page then has it before its first script (`getLaunch()`), else it asks.
@@ -271,7 +280,6 @@ pub fn open_window(
         window_builder(app, label, launch)
             .title(spec.name)
             .inner_size(spec.width, spec.height)
-            .min_inner_size(spec.min_width, spec.min_height)
             .build()?,
     )
 }

@@ -34,8 +34,6 @@ pub const SPEC: AppSpec = AppSpec {
     version: env!("CARGO_PKG_VERSION"),
     width: 1100.0,
     height: 700.0,
-    min_width: 640.0,
-    min_height: 420.0,
 };
 
 pub struct FilesState {

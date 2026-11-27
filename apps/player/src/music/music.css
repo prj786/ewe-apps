@@ -110,6 +110,8 @@
   align-items: center;
   gap: var(--space-s);
   width: calc(var(--panel-sm) * 0.75);
+  /* it gives way in a narrow window: the ⋯ beside it stays inside */
+  min-width: calc(var(--control-2xl) * 2);
   height: var(--control-lg);
   padding: 0 var(--space-s);
   border: var(--border-width-1) solid transparent;
@@ -179,7 +181,7 @@
 
 .mu-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--player-tile), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--player-tile), 100%), 1fr));
   gap: var(--space-md);
 }
 
@@ -225,7 +227,7 @@
 
 .mu-artists {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--panel-sm) * 0.66), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(calc(var(--panel-sm) * 0.66), 100%), 1fr));
   gap: var(--space-xs);
 }
 
@@ -577,12 +579,8 @@
 }
 
 /* the labels become tooltips, to the right of the rail */
-.mu.rail .mu-nav-item[data-tooltip]::after {
-  z-index: 2;
-  top: 50%;
-  bottom: auto;
-  left: calc(100% + var(--space-s));
-  translate: 0 -50%;
+.mu.rail .mu-nav-item[data-tooltip] {
+  --tip-side: right;
 }
 
 .mu-tabs {
@@ -608,4 +606,75 @@
 
 .mu.top .mu-volume input[type='range'] {
   display: none;
+}
+
+/* A small window (< 420): the transport is the bar. The song's cover and name had no
+   room left and lay over Shuffle and the time; they are one click away (Now playing). */
+@container app (width < 420px) {
+  .mu.top .mu-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-s);
+    padding: 0 var(--space-s);
+  }
+
+  .mu.top .mu-now {
+    display: none;
+  }
+
+  .mu.top .mu-transport {
+    min-width: 0;
+  }
+
+  .mu.top .mu-buttons {
+    gap: var(--space-xs);
+  }
+
+  .mu.top .mu-head {
+    padding: 0 var(--space-s);
+  }
+
+  .mu.top .mu-content {
+    padding: 0 var(--space-s) var(--space-s);
+  }
+
+  /* the album gives its column to the song's name, which had no room left at all */
+  .mu-album-cell {
+    display: none;
+  }
+
+  .mu-track {
+    grid-template-columns:
+      calc(var(--control-xl) - var(--space-xs)) minmax(0, 1fr)
+      calc(var(--control-2xl) + var(--space-s)) auto;
+  }
+}
+
+/* under a segmented nav the cover of an album (or of the song that plays) stands over
+   its words: side by side the words were a sliver at the window's edge */
+.mu.top .mu-hero {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.mu.top .mu-hero .mu-cover {
+  max-width: 100%;
+}
+
+.mu.top .mu-hero-text {
+  max-width: 100%;
+}
+
+/* A window too short for a list between the header and the bar: the page scrolls as a
+   whole (tabs, search, list) instead of the list having no height at all. */
+@media (max-height: 320px) {
+  .mu-main {
+    overflow: hidden auto;
+    scrollbar-width: thin;
+  }
+
+  .mu-content {
+    flex: none;
+    overflow: visible;
+  }
 }

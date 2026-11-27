@@ -142,18 +142,22 @@
   color: var(--text-muted);
 }
 
+/* A hint is ONE bubble for the whole window, placed by measuring (installTooltips in
+   app/tooltips.ts): all of it stays inside the window, whichever edge its element is
+   at, and nothing that scrolls can cut it. `--tip-side` on an element is the side it
+   opens on (above | below | left | right); it takes the other when there is no room. */
 [data-tooltip] {
   position: relative;
 }
 
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  z-index: 1;
-  bottom: calc(100% + var(--space-xs));
-  left: 50%;
-  translate: -50% 0;
-  max-width: calc(8 * var(--control-md) + var(--space-md));
+.tip-bubble {
+  position: fixed;
+  z-index: 30;
+  top: 0;
+  left: 0;
+  width: max-content;
+  /* `--tip-room` is the window's width less its margins, set when the hint is placed */
+  max-width: min(calc(8 * var(--control-md) + var(--space-md)), var(--tip-room, 100%));
   padding: var(--space-xxs) var(--space-s);
   background: var(--surface-overlay);
   border: var(--border-width-1) solid var(--border-subtle);
@@ -164,20 +168,17 @@
   line-height: var(--line-height-s);
   font-weight: var(--font-weight-regular);
   color: var(--text-primary);
-  white-space: nowrap;
+  /* a path or a long sentence wraps inside a narrow window instead of leaving it */
+  overflow-wrap: anywhere;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
+  /* no box at all while it is hidden: left where it last was, it counted as content
+     outside a window that had since become smaller, and the page could be scrolled */
+  display: none;
 }
 
-[data-tooltip]:hover::after {
-  opacity: 1;
-  transition-delay: var(--tooltip-delay);
-}
-
-[data-tooltip]:focus-visible::after {
-  opacity: 1;
-  transition-delay: 0s;
+.tip-bubble.show {
+  display: block;
+  animation: ewe-fade-in var(--dur-fast) var(--ease-out);
 }
 
 .btn--sm {
@@ -281,17 +282,27 @@
   align-items: stretch;
   flex: none;
   gap: var(--space-xxs);
+  /* never wider than what holds it: in a narrow window or dialog the choices scroll
+     inside the control (the chosen one is brought into view) instead of leaving it */
+  max-width: 100%;
   height: var(--control-md);
   padding: var(--space-xxs);
+  overflow-x: auto;
+  scrollbar-width: none;
   background: var(--surface-sunken);
   border: var(--border-width-1) solid var(--border-subtle);
   border-radius: var(--primary);
+}
+
+.seg::-webkit-scrollbar {
+  display: none;
 }
 
 .seg-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   gap: var(--space-xs);
   padding: 0 var(--space-s);
   border: var(--border-width-1) solid transparent;
@@ -433,24 +444,14 @@
   display: inline-flex;
 }
 
-.tip--below::after {
-  bottom: auto;
-  top: calc(100% + var(--space-xs));
+.tip--below {
+  --tip-side: below;
 }
 
-/* in a bar at the top of the window a tooltip above would be off the window: below,
-   and the last button's tooltip keeps to the window's right edge */
-.app-header [data-tooltip]::after,
-.view-toolbar [data-tooltip]::after {
-  bottom: auto;
-  top: calc(100% + var(--space-xs));
-}
-
-.app-header [data-tooltip]:last-child::after,
-.view-toolbar [data-tooltip]:last-child::after {
-  left: auto;
-  right: 0;
-  translate: none;
+/* in a bar at the top of the window a hint above would cover the bar over it */
+.app-header [data-tooltip],
+.view-toolbar [data-tooltip] {
+  --tip-side: below;
 }
 
 .dialog-scrim {
@@ -530,8 +531,30 @@
 
 .dialog-actions {
   display: flex;
+  /* in a narrow window an action on the left takes a line of its own */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-s);
+}
+
+/* A window too short for the card: the whole card scrolls, body at its own height.
+   Left as it was, the body gave up all its room first (an Open with without its
+   apps) and then the buttons hung out of the card's lower edge. */
+@media (max-height: 420px) {
+  .dialog {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .dialog-head,
+  .dialog-body,
+  .dialog-actions {
+    flex: none;
+  }
+
+  .dialog-body {
+    overflow: visible;
+  }
 }
 
 /* an action that stands apart on the left ("Find an app in Komble…") */
@@ -835,6 +858,8 @@
   flex: 0 1 auto;
   gap: var(--space-xs);
   min-width: 0;
+  /* a tab squeezed to its icon keeps its close button to itself */
+  overflow: hidden;
   max-width: var(--panel-sm);
   height: var(--control-md);
   padding: 0 var(--space-xs) 0 var(--space-s);
@@ -894,8 +919,27 @@
   color: var(--text-primary);
 }
 
+/* the + stays at the end of a strip that scrolls: a new tab is always one click away */
 .tabs-add {
+  position: sticky;
+  right: 0;
   margin-left: var(--space-xxs);
+  background: var(--surface-raised);
+  /* and covers the strip's own padding beside it: no sliver of a tab shows past it */
+  box-shadow: var(--space-xs) 0 0 var(--surface-raised);
+}
+
+/* a small window (< 480): tabs keep a short label and the strip scrolls; the open
+   tab keeps its name and its close button (Tabs brings it into view) */
+@container app (width < 480px) {
+  .tabs .tab {
+    flex: none;
+    max-width: calc(var(--control-2xl) * 2);
+  }
+
+  .tabs .tab.selected {
+    max-width: 100%;
+  }
 }
 
 .toolbar {

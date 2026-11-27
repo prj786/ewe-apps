@@ -1,5 +1,5 @@
 import { render } from 'solid-js/web'
-import { followTheme, fontsReady, trace } from '@ewe/ui'
+import { followTheme, fontsReady, installTooltips, trace } from '@ewe/ui'
 import '@ewe/ui/styles.css'
 // pdf.js' component styles come before app.css so the kit's .dialog / .page win
 import 'pdfjs-dist/web/pdf_viewer.css'
@@ -11,6 +11,8 @@ trace('script')
 
 // the theme is on :root before the first paint; the core keeps it fresh
 followTheme()
+// hints (`data-tooltip`) are one bubble that stays inside the window
+installTooltips()
 forwardErrors()
 
 const root = document.getElementById('root')

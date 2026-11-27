@@ -35,3 +35,4 @@ export {
 } from './app/bridge'
 export { applyShotSize } from './app/shot'
 export { fontsReady } from './app/fonts'
+export { installTooltips } from './app/tooltips'

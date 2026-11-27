@@ -1866,24 +1866,21 @@ export function App(): JSX.Element {
     window.addEventListener('beforeunload', () => void api.windowClosed())
     // drops from other apps (and our own uri-list drags) come through Tauri
     let offDrop: (() => void) | null = null
+    // The folder under a drag. Tauri calls the position physical pixels, but on Linux
+    // wry hands GTK's drag coordinates through as they are, and those are the page's
+    // own (CSS) pixels at every scale. Dividing them by devicePixelRatio hit-tested
+    // HALF the pointer's coordinates on a scale-2 screen: a file dragged onto Videos
+    // lit Desktop and was moved into it.
+    const dropZoneAt = (at: { x: number; y: number }): string | null =>
+      document.elementFromPoint(at.x, at.y)?.closest<HTMLElement>('[data-drop]')?.dataset.drop ??
+      null
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         const p = event.payload
-        if (p.type === 'over') {
-          const el = document.elementFromPoint(
-            p.position.x / window.devicePixelRatio,
-            p.position.y / window.devicePixelRatio,
-          )
-          const dir = el?.closest<HTMLElement>('[data-drop]')?.dataset.drop ?? null
-          setDropTarget(dir)
-        } else if (p.type === 'drop') {
+        if (p.type === 'over') setDropTarget(dropZoneAt(p.position))
+        else if (p.type === 'drop') {
           if (Date.now() - lastDomDrop < 400) return
-          const el = document.elementFromPoint(
-            p.position.x / window.devicePixelRatio,
-            p.position.y / window.devicePixelRatio,
-          )
-          const dir = el?.closest<HTMLElement>('[data-drop]')?.dataset.drop ?? activePath()
-          dropOn(dir, p.paths, ctrlHeld)
+          dropOn(dropZoneAt(p.position) ?? activePath(), p.paths, ctrlHeld)
           dragPaths = null
         } else setDropTarget(null)
       })

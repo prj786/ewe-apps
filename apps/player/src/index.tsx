@@ -1,11 +1,13 @@
 import { render } from 'solid-js/web'
-import { followTheme, fontsReady, trace } from '@ewe/ui'
+import { followTheme, fontsReady, installTooltips, trace } from '@ewe/ui'
 import '@ewe/ui/styles.css'
 import './app.css'
 import { App } from './App'
 
 // the theme is on :root before the first paint; the core keeps it fresh
 followTheme()
+// hints (`data-tooltip`) are one bubble that stays inside the window
+installTooltips()
 
 trace('script')
 

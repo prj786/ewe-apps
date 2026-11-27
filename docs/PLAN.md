@@ -236,4 +236,12 @@ publish → owner runs `pacman -Syu`. Old apps stay installed as orphans after t
       and reads as a place ("Pixel › DCIM"). `apps/files/src-tauri/src/phones.rs`,
       `scripts/test-phones.sh`. Mounted, listed and unmounted for real against a Pixel; the
       window itself was driven against a stand-in daemon under a headless cage
+- [x] small windows, true drops — 2026-11-27 (0.5.1-beta): no minimum window size (a tile
+      smaller than the minimum was drawn squeezed or cropped and the pointer missed what it
+      showed); hover ends when the pointer leaves the window; a panic is written to the journal;
+      a drop in ewe Files lands on the folder under the pointer at any scale (at scale 2 it
+      went to the row at half the coordinates); hints are one bubble inside the window; the
+      three apps hold together down to about 240 × 200. Driven with a virtual pointer in a
+      nested Hyprland at scale 1 and 2. Not fixed: the drag picture is twice too large at
+      scale 2 (WebKitGTK, AGENTS.md "Gotchas")
 - [ ] vault

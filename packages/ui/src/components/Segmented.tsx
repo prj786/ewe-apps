@@ -1,4 +1,4 @@
-import { For, type JSX } from 'solid-js'
+import { For, createEffect, on, type JSX } from 'solid-js'
 
 export interface SegmentedOption {
   value: string
@@ -24,6 +24,26 @@ export function Segmented(props: {
       root?.querySelector<HTMLButtonElement>(`[data-value="${CSS.escape(next.value)}"]`)?.focus(),
     )
   }
+  // in a narrow window the control scrolls inside itself (components.css): the chosen
+  // one is brought into view, which also uncovers its neighbours, so every choice can
+  // be reached with clicks alone. Only the control moves, never the page.
+  createEffect(
+    on(
+      () => props.value,
+      (value) =>
+        queueMicrotask(() => {
+          const el = root?.querySelector<HTMLElement>(`[data-value="${CSS.escape(value)}"]`)
+          if (root === undefined || el === null || el === undefined) return
+          if (root.scrollWidth <= root.clientWidth) return
+          const box = root.getBoundingClientRect()
+          const item = el.getBoundingClientRect()
+          // half of the next choice shows beside it when there is one
+          const peek = item.width / 2
+          if (item.left - peek < box.left) root.scrollLeft -= box.left - (item.left - peek)
+          else if (item.right + peek > box.right) root.scrollLeft += item.right + peek - box.right
+        }),
+    ),
+  )
   return (
     <div
       ref={root}

@@ -511,8 +511,18 @@ export function TextView(props: ViewProps): JSX.Element {
             </Button>
           )}
         </Show>
-        <IconButton icon="zoom-out" label="Smaller text (Ctrl+−)" onClick={() => stepFont(-1)} />
-        <IconButton icon="zoom-in" label="Larger text (Ctrl++)" onClick={() => stepFont(1)} />
+        <IconButton
+          icon="zoom-out"
+          label="Smaller text (Ctrl+−)"
+          class="tv-step"
+          onClick={() => stepFont(-1)}
+        />
+        <IconButton
+          icon="zoom-in"
+          label="Larger text (Ctrl++)"
+          class="tv-step"
+          onClick={() => stepFont(1)}
+        />
       </Toolbar>
       <Switch>
         <Match when={file.error !== undefined}>

@@ -147,6 +147,11 @@ export function PdfView(props: ViewProps): JSX.Element {
   // move into ⋯ too
   const [barWidth, setBarWidth] = createSignal(1280)
   const barTier = () => (barWidth() < 560 ? 'menu' : barWidth() < 760 ? 'icons' : 'full')
+  // Narrower than the 'menu' bar is wide, ⋯ itself left the window. Under 440 the
+  // zoom steps (− + and the zoom menu stay), night mode (now in ⋯) and "of N" go;
+  // under 310 the page arrows too (the page field, the keys and the wheel stay).
+  const tightBar = () => barWidth() < 440
+  const tinyBar = () => barWidth() < 310
   const [thumbsReady, setThumbsReady] = createSignal(0)
 
   let container: HTMLDivElement | undefined
@@ -817,6 +822,18 @@ export function PdfView(props: ViewProps): JSX.Element {
             run: () => openFind(),
           },
           { type: 'item', id: 'pages', label: 'Pages', icon: modeIcon(), items: modeItems() },
+          ...(tightBar()
+            ? ([
+                {
+                  type: 'item',
+                  id: 'night',
+                  label: night() ? 'Normal colours' : 'Night mode',
+                  icon: night() ? 'sun' : 'moon',
+                  hint: 'I',
+                  run: toggleNight,
+                },
+              ] satisfies MenuEntry[])
+            : []),
           { type: 'separator' },
         ] satisfies MenuEntry[])
       : []),
@@ -967,13 +984,15 @@ export function PdfView(props: ViewProps): JSX.Element {
           active={side() !== 'none'}
           onClick={() => toggleSide(side() === 'none' ? 'thumbs' : side())}
         />
-        <span class="toolbar-divider" />
-        <IconButton
-          icon="chevron-up"
-          label="Previous page (K)"
-          disabled={page() <= 1}
-          onClick={() => goTo(page() - 1)}
-        />
+        <Show when={!tinyBar()}>
+          <span class="toolbar-divider" />
+          <IconButton
+            icon="chevron-up"
+            label="Previous page (K)"
+            disabled={page() <= 1}
+            onClick={() => goTo(page() - 1)}
+          />
+        </Show>
         <form
           class="pdf-pagebox"
           onSubmit={(e) => {
@@ -994,16 +1013,22 @@ export function PdfView(props: ViewProps): JSX.Element {
             onInput={(e) => setPageText(e.currentTarget.value)}
             onBlur={() => setPageText(String(page()))}
           />
-          <span class="pdf-pagecount">of {count()}</span>
+          <Show when={!tightBar()}>
+            <span class="pdf-pagecount">of {count()}</span>
+          </Show>
         </form>
-        <IconButton
-          icon="chevron-down"
-          label="Next page (J)"
-          disabled={page() >= count()}
-          onClick={() => goTo(page() + 1)}
-        />
-        <span class="toolbar-divider" />
-        <IconButton icon="zoom-out" label="Zoom out (−)" onClick={() => zoomBy(-1)} />
+        <Show when={!tinyBar()}>
+          <IconButton
+            icon="chevron-down"
+            label="Next page (J)"
+            disabled={page() >= count()}
+            onClick={() => goTo(page() + 1)}
+          />
+          <span class="toolbar-divider" />
+        </Show>
+        <Show when={!tightBar()}>
+          <IconButton icon="zoom-out" label="Zoom out (−)" onClick={() => zoomBy(-1)} />
+        </Show>
         <button
           type="button"
           class="btn btn--ghost btn--sm pdf-zoom"
@@ -1017,7 +1042,9 @@ export function PdfView(props: ViewProps): JSX.Element {
           {barTier() === 'full' ? zoomLabel() : percent(scale())}
           <Icon name="chevron-down" size={14} />
         </button>
-        <IconButton icon="zoom-in" label="Zoom in (+)" onClick={() => zoomBy(1)} />
+        <Show when={!tightBar()}>
+          <IconButton icon="zoom-in" label="Zoom in (+)" onClick={() => zoomBy(1)} />
+        </Show>
         <Show when={barTier() !== 'menu'}>
           <span class="toolbar-divider" />
         </Show>
@@ -1070,12 +1097,14 @@ export function PdfView(props: ViewProps): JSX.Element {
             onClick={() => (findOpen() ? closeFind() : openFind())}
           />
         </Show>
-        <IconButton
-          icon={night() ? 'sun' : 'moon'}
-          label={night() ? 'Normal colours (I)' : 'Night mode (I)'}
-          active={night()}
-          onClick={toggleNight}
-        />
+        <Show when={!tightBar()}>
+          <IconButton
+            icon={night() ? 'sun' : 'moon'}
+            label={night() ? 'Normal colours (I)' : 'Night mode (I)'}
+            active={night()}
+            onClick={toggleNight}
+          />
+        </Show>
         <IconButton
           icon="ellipsis"
           label="More"

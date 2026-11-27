@@ -504,6 +504,7 @@
   flex: none;
   flex-direction: column;
   width: var(--player-panel-width);
+  max-width: 100%;
   min-height: 0;
   background: var(--surface-raised);
   border-left: var(--border-width-1) solid var(--border-subtle);
@@ -683,6 +684,15 @@
   margin: var(--space-s) var(--space-xs);
 }
 
+/* In a small window the playlist is a page, not a column: beside it the video would be
+   a sliver with its bar cut off (the panel plus the narrowest bar need 530). */
+@container app (width < 530px) {
+  .pl {
+    width: 100%;
+    border-left: 0;
+  }
+}
+
 /* --- a narrow bar (VideoPlayer narrowBar: < 560 and not mini) -------------------------
    the time, speed, picture and audio buttons are in ⋯; the volume keeps its button */
 .vp.narrow .vp-time,
@@ -690,5 +700,14 @@
 .vp.narrow .vp-view-btn,
 .vp.narrow .vp-audio-btn,
 .vp.narrow .vp-volume-label {
+  display: none;
+}
+
+/* Narrower still (VideoPlayer barTier), so that Subtitles, Playlist, ⋯ and Fullscreen
+   never leave the window: under 470 the volume is its button only, under 370 the
+   ±10 s buttons go, under 300 previous and next. The row is then about 230 wide. */
+.vp.tight .vp-volume-slider,
+.vp.slim .vp-skip,
+.vp.tiny .vp-step {
   display: none;
 }

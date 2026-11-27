@@ -1,4 +1,4 @@
-import { For, Show, createEffect, on, type JSX } from 'solid-js'
+import { For, Show, createEffect, on, onCleanup, onMount, type JSX } from 'solid-js'
 import { Icon, type IconName } from './Icon'
 
 export interface TabItem {
@@ -42,21 +42,36 @@ export function Tabs(props: {
   }
 
   // a strip that scrolls (narrow windows) keeps the selected tab in view; only the strip
-  // moves, never the page
+  // moves, never the page. The + button is pinned over the strip's end: clear of it.
+  const reveal = () => {
+    const el = root?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(props.selected)}"]`)
+    if (root === undefined || el === null || el === undefined) return
+    const strip = root.getBoundingClientRect()
+    const tab = el.getBoundingClientRect()
+    const add = root.querySelector<HTMLElement>('.tabs-add')?.getBoundingClientRect().width ?? 0
+    if (tab.left < strip.left) root.scrollLeft -= strip.left - tab.left
+    else if (tab.right > strip.right - add) root.scrollLeft += tab.right - (strip.right - add)
+  }
   createEffect(
     on(
       () => [props.selected, props.tabs.length] as const,
-      ([id]) =>
-        queueMicrotask(() => {
-          const el = root?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(id)}"]`)
-          if (root === undefined || el === null || el === undefined) return
-          const strip = root.getBoundingClientRect()
-          const tab = el.getBoundingClientRect()
-          if (tab.left < strip.left) root.scrollLeft -= strip.left - tab.left
-          else if (tab.right > strip.right) root.scrollLeft += tab.right - strip.right
-        }),
+      () => queueMicrotask(reveal),
     ),
   )
+  // a window that got smaller (a tile) must not leave the open tab outside the strip
+  onMount(() => {
+    if (root === undefined) return
+    let frame = 0
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(reveal)
+    })
+    ro.observe(root)
+    onCleanup(() => {
+      cancelAnimationFrame(frame)
+      ro.disconnect()
+    })
+  })
 
   return (
     <div

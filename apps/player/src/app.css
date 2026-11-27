@@ -15,8 +15,22 @@
 
 /* the header's buttons sit at the window's right edge, as in Files and Viewer */
 .app-header .toolbar--header {
-  flex: 1;
+  flex: 1 0 auto;
+}
+
+/* a narrow window: the name gives way first (it ends in an ellipsis, then only the
+   mark is left). It used to wrap onto two lines and push Open and the menu out of
+   the window */
+.app-header .app-name {
+  flex: 0 1 auto;
+  min-width: var(--icon-md);
+  white-space: nowrap;
+}
+
+.app-name-text {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app.fullscreen .app-header,
@@ -92,7 +106,7 @@
 
 .st-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--player-tile), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--player-tile), 100%), 1fr));
   gap: var(--space-md);
 }
 
@@ -168,7 +182,8 @@
 
 .st-songs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--panel-sm), 1fr));
+  /* one column as wide as the window when the window is narrower than a row */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--panel-sm), 100%), 1fr));
   gap: var(--space-xxs);
   margin: 0;
   padding: 0;

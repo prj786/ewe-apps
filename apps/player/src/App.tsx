@@ -570,7 +570,7 @@ export function App(): JSX.Element {
       <header class="app-header">
         <h1 class="app-name">
           <Icon name="play" />
-          ewe Player
+          <span class="app-name-text">ewe Player</span>
         </h1>
         <Segmented
           small

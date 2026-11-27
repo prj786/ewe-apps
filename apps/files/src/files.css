@@ -46,6 +46,14 @@
   color: var(--text-muted);
 }
 
+/* a place's hint (its path, how its sync is doing) opens under the row, inside the
+   window: it was the toolkit's own tooltip, which is drawn around the pointer and
+   left a narrow window by its left edge */
+.fm-place[data-tooltip],
+.fm-place-eject[data-tooltip] {
+  --tip-side: below;
+}
+
 .fm-place:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
@@ -1970,7 +1978,10 @@
 
 .fm-pane {
   container-type: inline-size;
-  min-width: 300px;
+  /* two panes never squeeze each other under 300px; a window narrower than that
+     is all the pane gets, and the pane fits it (it ran out of the window's right
+     edge, with the toolbar's last buttons and the end of every name) */
+  min-width: min(300px, 100%);
 }
 
 .fm-places {
@@ -2128,13 +2139,9 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* the close button sits at the card's right edge: its tooltip opens below, leftwards */
-.fm-preview-close[data-tooltip]::after {
-  bottom: auto;
-  top: calc(100% + var(--space-xs));
-  left: auto;
-  right: 0;
-  translate: none;
+/* the close button sits in the card's top corner: its hint opens below it */
+.fm-preview-close[data-tooltip] {
+  --tip-side: below;
 }
 
 .fm-more-btn.running .icon {
@@ -2164,16 +2171,6 @@
 
 .fm-tabs .tab.selected {
   flex-shrink: 0;
-}
-
-@container app (width < 480px) {
-  .fm-tabs .tab {
-    flex: none;
-    max-width: calc(var(--control-2xl) * 2);
-  }
-  .fm-tabs .tab.selected {
-    max-width: 100%;
-  }
 }
 
 /* ---- installing an app (install.tsx) ------------------------------------------ */

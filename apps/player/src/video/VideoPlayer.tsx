@@ -1055,7 +1055,14 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
   // a narrow bar (a small window, or the playlist beside the video) keeps the transport,
   // volume and seek bar; the time, speed, picture and audio buttons move into ⋯ (the mini
   // window has its own rules in video.css and keeps them)
-  const narrowBar = () => !props.mini && stageSize().w > 0 && stageSize().w < 560
+  const barUnder = (w: number) => !props.mini && stageSize().w > 0 && stageSize().w < w
+  const narrowBar = () => barUnder(560)
+  // Narrower still, the row ran out of the window with Subtitles, Playlist, ⋯ and
+  // Fullscreen on it. What has another way goes first: the volume slider (its button
+  // stays; ↑ ↓), then ±10 s (J L, the seek bar), then previous and next (P N, the
+  // playlist). The widths are the row's own, measured: see video.css.
+  const barTier = () =>
+    barUnder(300) ? 'tiny' : barUnder(370) ? 'slim' : barUnder(470) ? 'tight' : null
 
   const check = (on: boolean) => (on ? ('check' as const) : undefined)
   /** "Preferred language": automatic (the system's), off (subtitles), the file's languages */
@@ -1367,6 +1374,9 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
         'cue-bottom': props.prefs.subPosition === 'bottom',
         mini: props.mini,
         narrow: narrowBar(),
+        tight: barTier() !== null,
+        slim: barTier() === 'slim' || barTier() === 'tiny',
+        tiny: barTier() === 'tiny',
       }}
       onMouseMove={poke}
       onMouseLeave={() => {
@@ -1634,17 +1644,29 @@ export function VideoPlayer(props: VideoPlayerProps): JSX.Element {
             <IconButton
               icon="skip-back"
               label="Previous (P)"
+              class="vp-step"
               disabled={!canPrevious()}
               onClick={previous}
             />
-            <IconButton icon="rewind" label="Back 10 s (J)" onClick={() => seekBy(-10)} />
+            <IconButton
+              icon="rewind"
+              label="Back 10 s (J)"
+              class="vp-skip"
+              onClick={() => seekBy(-10)}
+            />
             <button class="vp-play" aria-label={playing() ? 'Pause' : 'Play'} onClick={toggle}>
               <Icon name={playing() ? 'pause' : 'play'} size={20} />
             </button>
-            <IconButton icon="fast-forward" label="Forward 10 s (L)" onClick={() => seekBy(10)} />
+            <IconButton
+              icon="fast-forward"
+              label="Forward 10 s (L)"
+              class="vp-skip"
+              onClick={() => seekBy(10)}
+            />
             <IconButton
               icon="skip-forward"
               label="Next (N)"
+              class="vp-step"
               disabled={!canNext()}
               onClick={() => next(true)}
             />

@@ -2,8 +2,8 @@ import { type JSX } from 'solid-js'
 
 /**
  * A plain-words hint on hover and keyboard focus. Wraps its child in an inline
- * box carrying `data-tooltip`; the bubble is CSS (`components.css`) so it needs
- * no portal and follows `--tooltip-delay`.
+ * box carrying `data-tooltip`; the bubble itself is one element for the whole
+ * window, placed inside it by `installTooltips` and shown after `--tooltip-delay`.
  */
 export function Tooltip(props: {
   text: string
